@@ -103,7 +103,7 @@ const ExamRoom: React.FC = () => {
   useEffect(() => {
     const preventDefaults = (e: MouseEvent) => e.preventDefault();
     const handleKeyDown = (e: KeyboardEvent) => {
-      const forbiddenKeys = ['F12', 'U', 'I', 'J', 'C'];
+      const forbiddenKeys = ['F12', 'U', 'I', 'J']; // 'C' intentionally allowed so students can copy questions
       const isCtrlOrMeta = e.ctrlKey || e.metaKey;
       const isAlt = e.altKey;
 

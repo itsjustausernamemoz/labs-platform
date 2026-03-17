@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useNotification } from '../components/NotificationProvider';
 import {
-  ArrowLeft, CheckCircle2,
-  Save, Loader2, Info, AlertCircle
+  ArrowLeft, CheckCircle2, ShieldAlert,
+  Save, Loader2, Info, AlertCircle, ShieldCheck
 } from 'lucide-react';
 
 interface Question {
@@ -38,6 +38,7 @@ const SubmissionReview: React.FC = () => {
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [violationCount, setViolationCount] = useState(0);
 
   useEffect(() => {
     fetchSubmissionData();
@@ -67,7 +68,15 @@ const SubmissionReview: React.FC = () => {
         .order('order_index');
 
       if (qsError) throw qsError;
-      setQuestions(qs);
+      setQuestions(qs || []);
+
+      // Fetch violation count for this student on this exam
+      const { count: vCount } = await supabase
+        .from('violations')
+        .select('*', { count: 'exact', head: true })
+        .eq('exam_id', sub.exam_id)
+        .eq('student_id', sub.student_id);
+      setViolationCount(vCount || 0);
 
       // Initialize overrides with current marks
       const initialOverrides: Record<string, number> = {};
@@ -77,6 +86,7 @@ const SubmissionReview: React.FC = () => {
       setOverrides(initialOverrides);
     } catch (err) {
       console.error('Error fetching submission review:', err);
+      showToast('Failed to load submission data.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -180,20 +190,43 @@ const SubmissionReview: React.FC = () => {
       </nav>
 
       <main className="max-w-5xl mx-auto p-8">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-8 flex justify-between items-center">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-8 grid grid-cols-1 sm:grid-cols-3 gap-6 items-center">
           <div>
             <p className="text-sm text-slate-500 font-medium">Final Score</p>
-            <div className="flex items-baseline gap-2">
+            <div className="flex items-baseline gap-2 mt-1">
               <span className="text-4xl font-bold text-primary">{submission.score.toFixed(1)}</span>
               <span className="text-slate-400 font-medium text-xl">/ {submission.total_marks}</span>
             </div>
           </div>
+
+          {/* Violations */}
+          <div className="flex flex-col items-center">
+            <p className="text-sm text-slate-500 font-medium mb-2">Security Violations</p>
+            <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm ${
+              violationCount === 0
+                ? 'bg-green-50 text-green-700'
+                : violationCount >= 3
+                ? 'bg-red-50 text-red-700'
+                : 'bg-orange-50 text-orange-700'
+            }`}>
+              <ShieldAlert className="w-4 h-4" />
+              {violationCount} Violation{violationCount !== 1 ? 's' : ''} Detected
+            </span>
+          </div>
+
           <div className="text-right">
             <p className="text-sm text-slate-500 font-medium">Marking Status</p>
-            <span className="inline-flex items-center gap-2 text-green-600 font-bold">
-              <CheckCircle2 className="w-5 h-5" />
-              AI Marked
-            </span>
+            {submission.is_manual ? (
+              <span className="inline-flex items-center gap-2 text-accent font-bold mt-1">
+                <ShieldCheck className="w-5 h-5" />
+                Lecturer Marked
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-2 text-green-600 font-bold mt-1">
+                <CheckCircle2 className="w-5 h-5" />
+                AI Marked
+              </span>
+            )}
           </div>
         </div>
 

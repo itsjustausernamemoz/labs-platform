@@ -247,7 +247,7 @@ const StudentDashboard: React.FC = () => {
                         {sub.graded ? (
                           <>
                             <div className="text-2xl font-bold text-accent">
-                              {((sub.score / sub.total_marks) * 100).toFixed(0)}%
+                              {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}%
                             </div>
                             <div className="flex flex-col items-end text-right mt-1">
                               {sub.is_manual ? (
@@ -286,7 +286,7 @@ const StudentDashboard: React.FC = () => {
                         <div className="flex flex-col items-end gap-3">
                           <div className="text-right">
                             <div className="text-2xl font-bold text-accent">
-                                {((sub.score / sub.total_marks) * 100).toFixed(0)}%
+                                {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}%
                             </div>
                             <div className="text-[10px] text-panel/40 font-bold uppercase tracking-widest">Final Grade</div>
                           </div>

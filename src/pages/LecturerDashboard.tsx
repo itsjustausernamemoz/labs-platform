@@ -70,8 +70,12 @@ const LecturerDashboard: React.FC = () => {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (error) console.error('Error fetching exams:', error);
-    else setExams(data || []);
+    if (error) {
+      console.error('Error fetching exams:', error);
+      showToast('Failed to fetch examinations. Please refresh the page.', 'error');
+    } else {
+      setExams(data || []);
+    }
     setIsLoading(false);
   };
 
@@ -121,8 +125,12 @@ const LecturerDashboard: React.FC = () => {
       .eq('exam_id', examId)
       .order('order_index', { ascending: true });
 
-    if (error) console.error('Error fetching questions:', error);
-    else setQuestions(data || []);
+    if (error) {
+      console.error('Error fetching questions:', error);
+      showToast('Failed to load exam questions.', 'error');
+    } else {
+      setQuestions(data || []);
+    }
   };
 
   const handleEditQuestions = (exam: Exam) => {

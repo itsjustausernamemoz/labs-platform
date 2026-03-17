@@ -118,7 +118,7 @@ const Results: React.FC = () => {
     const data = submissions.map(sub => ({
       'Student Number': sub.student.student_number,
       'Score (%)': ((sub.score / sub.total_marks) * 100).toFixed(1),
-      'Status': sub.is_manual ? 'Lecturer Marked' : sub.graded ? 'AI Marked' : 'Marking...',
+      'Status': sub.is_manual ? 'Lecturer Marked' : sub.graded ? 'Marked' : 'Pending',
       'Violations': sub.violations_count
     }));
 

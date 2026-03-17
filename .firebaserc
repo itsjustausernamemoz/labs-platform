@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "securelab-exam"
-  }
+    "default": "securelab-exam",
+    "lab": "labsystem-7a0e1"
+  },
+  "targets": {},
+  "etags": {}
 }
