@@ -1,10 +1,3 @@
--- Create students table
-CREATE TABLE IF NOT EXISTS students (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  student_number TEXT UNIQUE NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 -- Create exams table
 CREATE TABLE IF NOT EXISTS exams (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -12,6 +5,14 @@ CREATE TABLE IF NOT EXISTS exams (
   lecturer_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   duration_minutes INT DEFAULT 60,
   is_active BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Create students table
+CREATE TABLE IF NOT EXISTS students (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  student_number TEXT UNIQUE NOT NULL,
+  exam_id UUID REFERENCES exams(id), -- Direct link for accessibility
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

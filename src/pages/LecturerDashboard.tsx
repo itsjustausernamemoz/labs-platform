@@ -4,11 +4,12 @@ import { supabase } from '../lib/supabase';
 import {
   Plus, FileUp, Trash2, Eye, EyeOff,
   BarChart3, LogOut, Loader2, FileText,
-  Save, Edit3, UserPlus, ShieldCheck
+  Save, Edit3, UserPlus, ShieldCheck, Download
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as XLSX from 'xlsx';
+import { useNotification } from '../components/NotificationProvider';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -19,6 +20,8 @@ interface Exam {
   duration_minutes: number;
   is_active: boolean;
   created_at: string;
+  total_marks?: number;
+  allowed_violations?: number;
 }
 
 interface Question {
@@ -34,7 +37,12 @@ const LecturerDashboard: React.FC = () => {
   const [exams, setExams] = useState<Exam[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
-  const [newExam, setNewExam] = useState({ title: '', duration: 60 });
+  const [newExam, setNewExam] = useState({ 
+    title: '', 
+    duration: 60,
+    total_marks: 100,
+    allowed_violations: 3
+  });
   const [uploadingExamId, setUploadingExamId] = useState<string | null>(null);
   const [editingExamQuestions, setEditingExamQuestions] = useState<Exam | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -43,6 +51,7 @@ const LecturerDashboard: React.FC = () => {
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
+  const { showToast, showConfirm } = useNotification();
 
   useEffect(() => {
     fetchExams();
@@ -79,7 +88,9 @@ const LecturerDashboard: React.FC = () => {
         .insert([{
           title: newExam.title,
           duration_minutes: newExam.duration,
-          lecturer_id: user.id
+          lecturer_id: user.id,
+          total_marks: newExam.total_marks,
+          allowed_violations: newExam.allowed_violations
         }])
         .select()
         .single();
@@ -88,10 +99,16 @@ const LecturerDashboard: React.FC = () => {
       
       setExams([data, ...exams]);
       setIsCreating(false);
-      setNewExam({ title: '', duration: 60 });
+      setNewExam({ 
+        title: '', 
+        duration: 60, 
+        total_marks: 100,
+        allowed_violations: 3 
+      });
+      showToast('Exam created successfully!', 'success');
     } catch (err: any) {
       console.error('Error creating exam:', err);
-      alert(err.message || 'Failed to create exam. Please check your connection and try again.');
+      showToast(err.message || 'Failed to create exam. Please check your connection and try again.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -162,9 +179,10 @@ const LecturerDashboard: React.FC = () => {
 
       if (insError) throw insError;
       setEditingExamQuestions(null);
+      showToast('Questions saved successfully!', 'success');
     } catch (err) {
       console.error('Error saving questions:', err);
-      alert('Failed to save questions');
+      showToast('Failed to save questions', 'error');
     } finally {
       setIsSavingQuestions(false);
     }
@@ -181,47 +199,101 @@ const LecturerDashboard: React.FC = () => {
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
 
-      // Expecting a column 'student_number'
       const studentNumbers = jsonData
         .map(row => row.student_number?.toString().trim())
         .filter(num => num);
 
       if (studentNumbers.length === 0) {
-        alert('No student numbers found in the Excel file. Please ensure there is a "student_number" column.');
+        showToast('No student numbers found in the Excel file. Please ensure there is a "student_number" column.', 'error');
         return;
       }
 
-      for (const num of studentNumbers) {
-        // 1. Ensure student exists
-        let { data: student, error: sError } = await supabase
-          .from('students')
-          .select('id')
-          .eq('student_number', num)
-          .single();
+      // 1. Bulk upsert students to ensure they exist
+      const studentsToUpsert = studentNumbers.map(num => ({ student_number: num }));
+      const { data: upsertedStudents, error: upsertError } = await supabase
+        .from('students')
+        .upsert(studentsToUpsert, { onConflict: 'student_number' })
+        .select();
 
-        if (sError && sError.code === 'PGRST116') {
-          const { data: newStudent, error: iError } = await supabase
-            .from('students')
-            .insert([{ student_number: num }])
-            .select('id')
-            .single();
-          if (iError) throw iError;
-          student = newStudent;
-        } else if (sError) throw sError;
+      if (upsertError) throw upsertError;
 
-        // 2. Enroll student
-        await supabase
-          .from('enrollments')
-          .upsert([{ exam_id: examId, student_id: student!.id }]);
-      }
+      // 2. Bulk enroll students
+      const enrollmentsToUpsert = (upsertedStudents || []).map(s => ({
+        exam_id: examId,
+        student_id: s.id
+      }));
 
-      alert(`Successfully enrolled ${studentNumbers.length} students!`);
+      const { error: enrollError } = await supabase
+        .from('enrollments')
+        .upsert(enrollmentsToUpsert, { onConflict: 'exam_id,student_id' });
+
+      if (enrollError) throw enrollError;
+
+      showToast(`Successfully enrolled ${studentNumbers.length} students!`, 'success');
       setEnrollingExam(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error enrolling students:', err);
-      alert('Failed to enroll students');
+      showToast(err.message || 'Failed to enroll students', 'error');
     } finally {
       setIsEnrolling(false);
+      // Reset file input
+      event.target.value = '';
+    }
+  };
+
+  const handleQuestionExcelUpload = async (examId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsSavingQuestions(true);
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+      const mappedQuestions = jsonData.map((row, idx) => {
+        const type = (row.type || 'mcq').toLowerCase().includes('mcq') ? 'mcq' : 'structured';
+        const options = type === 'mcq' ? [
+          row.option_a || '',
+          row.option_b || '',
+          row.option_c || '',
+          row.option_d || ''
+        ].filter(opt => opt !== '') : null;
+
+        return {
+          exam_id: examId,
+          type,
+          question_text: row.question_text || `Question ${idx + 1}`,
+          options,
+          correct_answer: row.correct_answer?.toString() || '',
+          marks: parseInt(row.marks) || 1,
+          order_index: idx
+        };
+      });
+
+      if (mappedQuestions.length === 0) {
+        throw new Error('No valid questions found in Excel. Required columns: question_text, type, option_a, option_b, option_c, option_d, correct_answer, marks');
+      }
+
+      // 1. Clear existing questions
+      const { error: delError } = await supabase.from('questions').delete().eq('exam_id', examId);
+      if (delError) throw delError;
+
+      // 2. Insert new ones
+      const { error: insError } = await supabase.from('questions').insert(mappedQuestions);
+      if (insError) throw insError;
+
+      showToast(`${mappedQuestions.length} questions uploaded successfully!`, 'success');
+      if (editingExamQuestions?.id === examId) {
+        fetchQuestions(examId);
+      }
+    } catch (err: any) {
+      console.error('Error uploading questions Excel:', err);
+      showToast(err.message || 'Failed to upload questions', 'error');
+    } finally {
+      setIsSavingQuestions(false);
+      event.target.value = '';
     }
   };
 
@@ -238,10 +310,23 @@ const LecturerDashboard: React.FC = () => {
   };
 
   const deleteExam = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this exam?')) return;
-    const { error } = await supabase.from('exams').delete().eq('id', id);
-    if (error) console.error('Error deleting exam:', error);
-    else setExams(exams.filter(e => e.id !== id));
+    showConfirm({
+      title: 'Delete Exam',
+      message: 'Are you sure you want to delete this exam? This will remove all submissions, questions, and enrollments linked to it.',
+      confirmText: 'Delete',
+      onConfirm: async () => {
+        setIsLoading(true);
+        const { error } = await supabase.from('exams').delete().eq('id', id);
+        if (error) {
+          console.error('Error deleting exam:', error);
+          showToast('Failed to delete exam.', 'error');
+        } else {
+          setExams(exams.filter(e => e.id !== id));
+          showToast('Exam deleted successfully.', 'success');
+        }
+        setIsLoading(false);
+      }
+    });
   };
 
   const handleFileUpload = async (examId: string, event: React.ChangeEvent<HTMLInputElement>) => {
@@ -300,10 +385,10 @@ const LecturerDashboard: React.FC = () => {
         throw new Error(`AI Processing Error: ${data.error}`);
       }
 
-      alert('Questions extracted and saved successfully!');
+      showToast('Questions extracted and saved successfully!', 'success');
     } catch (err: any) {
       console.error('Error uploading/processing file:', err);
-      alert(err.message || 'Failed to process file. Check console for details.');
+      showToast(err.message || 'Failed to process file. Check console for details.', 'error');
     } finally {
       setUploadingExamId(null);
     }
@@ -359,16 +444,43 @@ const LecturerDashboard: React.FC = () => {
                     placeholder="e.g. Introduction to Psychology"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1">Duration (minutes)</label>
-                  <input
-                    type="number"
-                    required
-                    value={newExam.duration}
-                    onChange={(e) => setNewExam({ ...newExam, duration: parseInt(e.target.value) })}
-                    className="w-full border border-slate-200 rounded-lg px-4 py-2 outline-none focus:border-primary transition-all"
-                  />
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Duration (minutes)</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={newExam.duration}
+                      onChange={(e) => setNewExam({ ...newExam, duration: parseInt(e.target.value) || 60 })}
+                      className="w-full border border-slate-200 rounded-lg px-4 py-2 outline-none focus:border-primary transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Total Marks</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={newExam.total_marks}
+                      onChange={(e) => setNewExam({ ...newExam, total_marks: parseInt(e.target.value) || 100 })}
+                      className="w-full border border-slate-200 rounded-lg px-4 py-2 outline-none focus:border-primary transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Allowed Violations</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      value={newExam.allowed_violations}
+                      onChange={(e) => setNewExam({ ...newExam, allowed_violations: parseInt(e.target.value) || 3 })}
+                      className="w-full border border-slate-200 rounded-lg px-4 py-2 outline-none focus:border-primary transition-all"
+                    />
+                  </div>
                 </div>
+
                 <div className="flex gap-3 mt-8">
                   <button
                     type="button"
@@ -454,7 +566,7 @@ const LecturerDashboard: React.FC = () => {
                         ) : (
                           <FileUp className="w-4 h-4" />
                         )}
-                        <span className="font-bold">Upload</span>
+                        <span className="font-bold whitespace-nowrap">Upload Paper</span>
                         <input
                           type="file"
                           className="hidden"
@@ -468,18 +580,36 @@ const LecturerDashboard: React.FC = () => {
                         className="flex items-center justify-center gap-2 py-3 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-100 transition-all border border-slate-200 text-sm font-bold"
                       >
                         <Edit3 className="w-4 h-4" />
-                        Edit Qs
+                        <span className="whitespace-nowrap">Edit Qs</span>
                       </button>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
+                      <label className="flex items-center justify-center gap-2 py-3 bg-white text-primary border border-primary rounded-xl font-bold hover:bg-primary/5 transition-all text-sm cursor-pointer">
+                        {isSavingQuestions && uploadingExamId === exam.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4 rotate-180" />
+                        )}
+                        <span className="whitespace-nowrap">Import Qs</span>
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".xlsx,.xls"
+                          onChange={(e) => {
+                            setUploadingExamId(exam.id);
+                            handleQuestionExcelUpload(exam.id, e);
+                          }}
+                          disabled={isSavingQuestions}
+                        />
+                      </label>
                       <label className="flex items-center justify-center gap-2 py-3 bg-white text-primary border border-primary rounded-xl font-bold hover:bg-primary/5 transition-all text-sm cursor-pointer">
                         {isEnrolling && enrollingExam?.id === exam.id ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
                           <UserPlus className="w-4 h-4" />
                         )}
-                        Enroll
+                        <span className="whitespace-nowrap">Enroll</span>
                         <input
                           type="file"
                           className="hidden"
@@ -491,14 +621,15 @@ const LecturerDashboard: React.FC = () => {
                           disabled={isEnrolling}
                         />
                       </label>
-                      <button
-                        onClick={() => navigate(`/lecturer/results/${exam.id}`)}
-                        className="flex items-center justify-center gap-2 py-3 bg-white text-primary border border-primary rounded-xl font-bold hover:bg-primary/5 transition-all text-sm"
-                      >
-                        <BarChart3 className="w-4 h-4" />
-                        Results
-                      </button>
                     </div>
+
+                    <button
+                      onClick={() => navigate(`/lecturer/results/${exam.id}`)}
+                      className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/95 transition-all text-sm shadow-md"
+                    >
+                      <BarChart3 className="w-4 h-4" />
+                      View Results & Submissions
+                    </button>
                   </div>
                 </div>
               </div>
@@ -515,6 +646,34 @@ const LecturerDashboard: React.FC = () => {
                   <p className="text-panel/60">{editingExamQuestions.title}</p>
                 </div>
                 <div className="flex gap-4">
+                  <button
+                    onClick={() => {
+                      const template = [
+                        ['question_text', 'type', 'option_a', 'option_b', 'option_c', 'option_d', 'correct_answer', 'marks'],
+                        ['Sample Multiple Choice Question', 'MCQ', 'Option 1', 'Option 2', 'Option 3', 'Option 4', 'A', '1'],
+                        ['Sample Structured Question', 'Structured', '', '', '', '', 'This is the model answer.', '5']
+                      ];
+                      const wb = XLSX.utils.book_new();
+                      const ws = XLSX.utils.aoa_to_sheet(template);
+                      XLSX.utils.book_append_sheet(wb, ws, "Template");
+                      XLSX.writeFile(wb, "question_template.xlsx");
+                      showToast('Template downloaded!', 'info');
+                    }}
+                    className="px-4 py-2 border border-white/20 rounded-lg text-white/60 hover:text-white flex items-center gap-2 hover:bg-white/5 transition-all"
+                  >
+                    <Download className="w-4 h-4" />
+                    Template
+                  </button>
+                  <label className="px-4 py-2 border border-accent/50 text-accent rounded-lg flex items-center gap-2 hover:bg-accent/10 cursor-pointer transition-all">
+                    <FileUp className="w-4 h-4" />
+                    Upload Excel
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".xlsx,.xls"
+                      onChange={(e) => handleQuestionExcelUpload(editingExamQuestions.id, e)}
+                    />
+                  </label>
                   <button
                     onClick={() => setEditingExamQuestions(null)}
                     className="px-6 py-2 text-panel/60 hover:text-white font-bold"

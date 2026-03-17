@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 
 export interface Question {
   id: string;
@@ -15,6 +15,96 @@ interface QuestionRendererProps {
   answer?: string;
   onChange: (answer: string) => void;
 }
+
+/** Auto-growing structured text area with tab-indent support */
+const StructuredAnswerInput: React.FC<{ value: string; onChange: (v: string) => void }> = ({
+  value,
+  onChange,
+}) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize on every value change
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const indent = '    '; // 4 spaces
+
+      const newValue = value.substring(0, start) + indent + value.substring(end);
+      onChange(newValue);
+
+      requestAnimationFrame(() => {
+        el.selectionStart = el.selectionEnd = start + indent.length;
+      });
+    } else if (e.key === 'Enter') {
+      // Auto-indent: match leading whitespace of current line
+      e.preventDefault();
+      const start = el.selectionStart;
+      const textBefore = value.substring(0, start);
+      const currentLineStart = textBefore.lastIndexOf('\n') + 1;
+      const currentLine = textBefore.substring(currentLineStart);
+      const leadingWhitespace = currentLine.match(/^(\s*)/)?.[1] ?? '';
+
+      const newValue = value.substring(0, start) + '\n' + leadingWhitespace + value.substring(el.selectionEnd);
+      onChange(newValue);
+
+      requestAnimationFrame(() => {
+        el.selectionStart = el.selectionEnd = start + 1 + leadingWhitespace.length;
+      });
+    }
+  };
+
+  return (
+    <div className="relative">
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={"Type your answer here...\n\nPress Tab to indent, Enter for a new line (auto-indented)."}
+        rows={8}
+        spellCheck={false}
+        className={[
+          'w-full min-h-[12rem] overflow-hidden resize-none',
+          'bg-white/5 border border-white/10 rounded-lg',
+          'p-4 pl-14',
+          'focus:border-accent focus:ring-1 focus:ring-accent outline-none transition-all',
+          'font-mono text-sm leading-6 whitespace-pre-wrap break-words',
+        ].join(' ')}
+        style={{ tabSize: 4 }}
+      />
+      {/* Line-number gutter */}
+      <LineNumbers value={value} />
+    </div>
+  );
+};
+
+/** Renders line numbers in a fixed gutter next to the textarea */
+const LineNumbers: React.FC<{ value: string }> = ({ value }) => {
+  const lines = value ? value.split('\n') : [''];
+  return (
+    <div
+      aria-hidden
+      className="absolute left-0 top-0 bottom-0 w-10 flex flex-col items-end pr-2 pt-4 pb-4 select-none pointer-events-none"
+    >
+      {lines.map((_, i) => (
+        <span key={i} className="block font-mono text-sm leading-6 text-white/20">
+          {i + 1}
+        </span>
+      ))}
+    </div>
+  );
+};
 
 const QuestionRenderer: React.FC<QuestionRendererProps> = ({ question, index, answer, onChange }) => {
   return (
@@ -55,15 +145,17 @@ const QuestionRenderer: React.FC<QuestionRendererProps> = ({ question, index, an
           })}
         </div>
       ) : (
-        <textarea
-          value={answer || ''}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Type your answer here..."
-          className="w-full h-48 bg-white/5 border border-white/10 rounded-lg p-4 focus:border-accent focus:ring-1 focus:ring-accent outline-none transition-all resize-none"
-        />
+        <>
+          <StructuredAnswerInput value={answer || ''} onChange={onChange} />
+          <p className="mt-2 text-xs text-white/30">
+            <kbd className="px-1 py-0.5 bg-white/10 rounded text-white/50 font-mono">Tab</kbd> to indent &nbsp;·&nbsp;
+            <kbd className="px-1 py-0.5 bg-white/10 rounded text-white/50 font-mono">Enter</kbd> for new line (auto-indented)
+          </p>
+        </>
       )}
     </div>
   );
 };
 
 export default QuestionRenderer;
+

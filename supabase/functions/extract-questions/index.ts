@@ -13,18 +13,21 @@ serve(async (req) => {
 
   try {
     const { examId, text } = await req.json()
-    const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY')
+    const geminiApiKey = 'AIzaSyDPQ4zPw3srzdCkDYPH7NCrJgjLCv0gvaE';
 
-    if (!anthropicApiKey) {
-      throw new Error('Missing ANTHROPIC_API_KEY')
+    if (!geminiApiKey) {
+      throw new Error('Missing GEMINI_API_KEY')
     }
 
     const prompt = `
       You are an expert examiner. Extract questions from the following text and return them as a JSON array.
-      Classify each question as either "mcq" or "structured".
-      For MCQ, provide "options" as an array of strings (e.g., ["A. ...", "B. ..."]) and "correct_answer" as the letter (e.g., "A").
-      For structured, provide a "correct_answer" as a model answer.
-      Assign reasonable "marks" to each.
+      
+      CRITICAL INSTRUCTIONS:
+      1. Classify each question as either "mcq" or "structured".
+      2. For MCQ, provide "options" as an array of strings (e.g., ["A. ...", "B. ..."]) and "correct_answer" as the letter (e.g., "A").
+      3. For structured, provide a "correct_answer" as a comprehensive model answer.
+      4. DETECT MARKS: Look for patterns like "Marks: [X]", "(X)", "[X]", or "X marks". If no marks are explicitly stated, assign a reasonable value (e.g., 2 for mcq, 5-10 for structured).
+      5. Return ONLY the JSON array. Do not include markdown formatting like \`\`\`json.
 
       Format:
       [
@@ -49,36 +52,32 @@ serve(async (req) => {
 
     console.log(`Received request for examId: ${examId}, text length: ${text?.length}`);
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
       method: 'POST',
       headers: {
-        'x-api-key': anthropicApiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-3-sonnet-20240229',
-        max_tokens: 4096,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
+        contents: [{
+          parts: [{ text: prompt }]
+        }]
       }),
     })
 
     if (!response.ok) {
       const errorData = await response.text();
-      console.error('Anthropic API error:', errorData);
-      throw new Error(`Anthropic API error: ${response.statusText}`);
+      console.error('Gemini API error:', errorData);
+      throw new Error(`Gemini API error: ${response.statusText}`);
     }
 
     const result = await response.json()
-    console.log('Anthropic response received');
-    const content = result.content[0].text
+    console.log('Gemini response received');
+    const content = result.candidates[0].content.parts[0].text
 
-    // Attempt to extract JSON if Claude adds conversational filler
+    // Attempt to extract JSON if Gemini adds conversational filler
     const jsonMatch = content.match(/\[\s*\{.*\}\s*\]/s)
     if (!jsonMatch) {
-      console.error('Failed to find JSON array in Claude response:', content);
+      console.error('Failed to find JSON array in Gemini response:', content);
       throw new Error('Failed to extract structured questions from the AI response.');
     }
     const questions = JSON.parse(jsonMatch[0])

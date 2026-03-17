@@ -13,7 +13,7 @@ serve(async (req) => {
 
   try {
     const { submissionId } = await req.json()
-    const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY')
+    const geminiApiKey = 'AIzaSyDPQ4zPw3srzdCkDYPH7NCrJgjLCv0gvaE';
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -23,11 +23,16 @@ serve(async (req) => {
     // Fetch submission and its questions
     const { data: submission, error: subError } = await supabase
       .from('submissions')
-      .select('*, exams(id)')
+      .select('*, exams(*)')
       .eq('id', submissionId)
       .single()
 
     if (subError) throw subError
+    if (submission.is_manual) {
+      return new Response(JSON.stringify({ message: 'Skipping AI grading: manual marks already present.' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
     const { data: questions, error: qError } = await supabase
       .from('questions')
@@ -38,18 +43,26 @@ serve(async (req) => {
 
     let totalScore = 0
     const studentAnswers = submission.answers || {}
+    const markingDetails: Record<string, any> = {}
 
     for (const question of questions) {
       const studentAnswer = studentAnswers[question.id] || ''
 
       if (question.type === 'mcq') {
-        if (studentAnswer.toUpperCase() === question.correct_answer.toUpperCase()) {
-          totalScore += question.marks
+        const isCorrect = studentAnswer.toUpperCase() === question.correct_answer.toUpperCase()
+        const awarded = isCorrect ? question.marks : 0
+        totalScore += awarded
+        markingDetails[question.id] = {
+          awarded_marks: awarded,
+          feedback: isCorrect ? 'Correct' : `Incorrect. Correct answer: ${question.correct_answer}`
         }
       } else if (question.type === 'structured') {
-        if (!studentAnswer.trim()) continue
+        if (!studentAnswer.trim()) {
+          markingDetails[question.id] = { awarded_marks: 0, feedback: 'No answer provided' }
+          continue
+        }
 
-        // Use Claude to grade structured questions
+        // Use Gemini to grade structured questions
         const gradingPrompt = `
           Grade the student's answer against the model answer.
           Question: ${question.question_text}
@@ -60,37 +73,42 @@ serve(async (req) => {
           Return ONLY a JSON object: { "awarded_marks": number, "feedback": "string" }
         `
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiApiKey}`, {
           method: 'POST',
           headers: {
-            'x-api-key': anthropicApiKey,
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json',
+            'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'claude-3-sonnet-20240229',
-            max_tokens: 1024,
-            messages: [{ role: 'user', content: gradingPrompt }],
+            contents: [{
+              parts: [{ text: gradingPrompt }]
+            }]
           }),
         })
 
         const result = await response.json()
-        const content = result.content[0].text
+        const content = result.candidates[0].content.parts[0].text
         const jsonMatch = content.match(/\{.*\}/s)
         const grading = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content)
 
-        totalScore += Math.min(grading.awarded_marks, question.marks)
+        const awarded = Math.min(grading.awarded_marks, question.marks)
+        totalScore += awarded
+        markingDetails[question.id] = {
+          awarded_marks: awarded,
+          feedback: grading.feedback
+        }
       }
     }
 
-    // Update submission with final score
+    // Update submission with final score and details
     const { error: updateError } = await supabase
       .from('submissions')
       .update({
         score: totalScore,
-        graded: true
+        graded: true,
+        marking_details: markingDetails
       })
       .eq('id', submissionId)
+      .eq('is_manual', false)
 
     if (updateError) throw updateError
 

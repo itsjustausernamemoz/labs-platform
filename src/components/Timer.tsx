@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 
 interface TimerProps {
-  durationMinutes: number;
+  endTime: number;
   onExpiry: () => void;
 }
 
-const Timer: React.FC<TimerProps> = ({ durationMinutes, onExpiry }) => {
-  const [timeLeft, setTimeLeft] = useState(durationMinutes * 60);
+const Timer: React.FC<TimerProps> = ({ endTime, onExpiry }) => {
+  const [timeLeft, setTimeLeft] = useState(() => Math.max(0, Math.floor((endTime - Date.now()) / 1000)));
 
   useEffect(() => {
     if (timeLeft <= 0) {
@@ -16,11 +16,16 @@ const Timer: React.FC<TimerProps> = ({ durationMinutes, onExpiry }) => {
     }
 
     const interval = setInterval(() => {
-      setTimeLeft((prev) => prev - 1);
+      const remaining = Math.max(0, Math.floor((endTime - Date.now()) / 1000));
+      setTimeLeft(remaining);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        onExpiry();
+      }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [timeLeft, onExpiry]);
+  }, [endTime, onExpiry, timeLeft]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

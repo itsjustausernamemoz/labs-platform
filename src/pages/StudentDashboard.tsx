@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
-  BookOpen, Clock, ChevronRight,
-  LogOut, GraduationCap, AlertCircle
+  BookOpen, Clock, ChevronRight, ArrowRight,
+  LogOut, GraduationCap, ShieldCheck, CheckCircle2, AlertCircle
 } from 'lucide-react';
 
 interface Exam {
@@ -13,11 +13,36 @@ interface Exam {
   is_active: boolean;
 }
 
+interface Submission {
+  id: string;
+  score: number;
+  total_marks: number;
+  graded: boolean;
+  is_manual: boolean;
+  submitted_at: string;
+  exams: { title: string; id: string };
+}
+
 const StudentDashboard: React.FC = () => {
   const [exams, setExams] = useState<Exam[]>([]);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [student, setStudent] = useState<any>(null);
   const navigate = useNavigate();
+
+  const fetchDashboardData = async () => {
+    setIsLoading(true);
+    try {
+      await Promise.all([
+        fetchActiveExams(),
+        fetchSubmissions()
+      ]);
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     const storedStudent = localStorage.getItem('student');
@@ -26,34 +51,99 @@ const StudentDashboard: React.FC = () => {
       return;
     }
     setStudent(JSON.parse(storedStudent));
-    fetchActiveExams();
-  }, []);
+    fetchDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigate]);
 
   const fetchActiveExams = async () => {
-    setIsLoading(true);
+    const storedStudent = localStorage.getItem('student');
+    if (!storedStudent) return;
+    
+    const initialStudentData = JSON.parse(storedStudent);
+    console.log('Syncing profile for student:', initialStudentData.student_number);
+
+    try {
+      // 1. Fetch all active exams the student is enrolled in via the enrollments table
+      const { data: enrollmentData, error: enrollError } = await supabase
+        .from('enrollments')
+        .select(`
+          exams (
+            id,
+            title,
+            duration_minutes,
+            is_active
+          )
+        `)
+        .eq('student_id', initialStudentData.id);
+
+      if (enrollError) {
+        console.error('Error fetching student enrollments:', enrollError);
+        setExams([]);
+        return;
+      }
+
+      // Filter for active exams and extract the exam objects
+      // Also filter out exams that have already been submitted
+      const submittedExamIds = new Set((submissions || []).map(s => s.exams?.id || (s as any).exam_id));
+      
+      const activeExams = (enrollmentData || [])
+        .map((e: any) => e.exams)
+        .filter((exam: any) => 
+          exam && (exam.is_active || (exam as any).is_active) && !submittedExamIds.has(exam.id)
+        );
+
+      console.log(`Found ${activeExams.length} active enrolled exams after filtering ${submittedExamIds.size} submissions.`);
+      setExams(activeExams);
+
+      // 2. Keep the student profile synced (optional but helpful for student_number)
+      const { data: refreshedStudent } = await supabase
+        .from('students')
+        .select('*')
+        .eq('id', initialStudentData.id)
+        .single();
+        
+      if (refreshedStudent) {
+        localStorage.setItem('student', JSON.stringify(refreshedStudent));
+        setStudent(refreshedStudent);
+      }
+    } catch (err) {
+      console.error('Unexpected error in student dashboard:', err);
+    }
+  };
+
+  const fetchSubmissions = async () => {
     const storedStudent = localStorage.getItem('student');
     if (!storedStudent) return;
     const studentId = JSON.parse(storedStudent).id;
 
-    // Fetch exams where student is enrolled AND exam is active
-    const { data, error } = await supabase
-      .from('enrollments')
+    const { data: subs, error } = await supabase
+      .from('submissions')
       .select(`
-        exam:exams(*)
+        id,
+        score,
+        total_marks,
+        graded,
+        is_manual,
+        submitted_at,
+        exams(title, id)
       `)
       .eq('student_id', studentId)
-      .filter('exam.is_active', 'eq', true)
-      .order('enrolled_at', { ascending: false });
+      .order('submitted_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching exams:', error);
+      console.error('Error fetching submissions:', error);
     } else {
-      const activeExams = (data || [])
-        .map((e: any) => e.exam)
-        .filter(exam => exam && exam.is_active);
-      setExams(activeExams);
+      // Group by exam title/id and take the latest submission
+      const latestSubmissionsMap = new Map();
+      (subs || []).forEach(sub => {
+        const examObj = (sub.exams as any) || (sub as any).exam;
+        const examId = examObj?.id || examObj?.title || 'unknown';
+        if (!latestSubmissionsMap.has(examId)) {
+          latestSubmissionsMap.set(examId, sub);
+        }
+      });
+      setSubmissions(Array.from(latestSubmissionsMap.values()));
     }
-    setIsLoading(false);
   };
 
   const handleLogout = () => {
@@ -122,6 +212,104 @@ const StudentDashboard: React.FC = () => {
             ))}
           </div>
         )}
+
+        <section className="mt-16">
+          <header className="mb-8">
+            <h2 className="text-3xl font-bold mb-2">Examination Results</h2>
+            <p className="text-panel/60">Review your performance from previous sessions.</p>
+          </header>
+
+          {submissions.length === 0 ? (
+            <div className="bg-white/5 border border-white/5 rounded-2xl p-8 text-center text-panel/40">
+              No previous results found.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {submissions.map((sub) => {
+                const isClickable = sub.graded;
+                return (
+                  <div 
+                    key={sub.id}
+                    onClick={() => isClickable ? navigate(`/exam/results/${sub.id}`) : undefined}
+                    className={`bg-white/5 border border-white/10 p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                      isClickable ? 'cursor-pointer hover:bg-white/10 hover:border-accent/50 group' : 'opacity-80'
+                    }`}
+                  >
+                    <div>
+                      <h3 className={`text-xl font-bold mb-1 ${isClickable ? 'group-hover:text-accent transition-colors' : ''}`}>
+                        {sub.exams?.title || (sub as any).exam?.title || 'Unknown Exam'}
+                      </h3>
+                      <p className="text-sm text-panel/40">Submitted on {new Date(sub.submitted_at).toLocaleDateString()}</p>
+                    </div>
+                    
+                    <div className="flex items-center gap-6">
+                      <div className="text-right">
+                        {sub.graded ? (
+                          <>
+                            <div className="text-2xl font-bold text-accent">
+                              {((sub.score / sub.total_marks) * 100).toFixed(0)}%
+                            </div>
+                            <div className="flex flex-col items-end text-right mt-1">
+                              {sub.is_manual ? (
+                                <div className="flex items-center gap-2 text-accent font-bold">
+                                  <ShieldCheck className="w-5 h-5" />
+                                  Lecturer Marked
+                                </div>
+                              ) : sub.graded ? (
+                                <div className="flex items-center gap-2 text-green-500 font-bold">
+                                  <CheckCircle2 className="w-5 h-5" />
+                                  Marked Successfully
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-end">
+                                  <div className="flex items-center gap-2 text-orange-500 font-bold">
+                                    <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
+                                    Marking...
+                                  </div>
+                                  <span className="text-[10px] text-panel/40 font-bold uppercase tracking-tighter">In Progress</span>
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-lg font-bold text-orange-500 flex items-center gap-2">
+                              <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
+                              Marking...
+                            </div>
+                            <div className="text-xs text-panel/40 font-medium uppercase tracking-wider">In Progress</div>
+                          </>
+                        )}
+                      </div>
+                      
+                      {isClickable ? (
+                        <div className="flex flex-col items-end gap-3">
+                          <div className="text-right">
+                            <div className="text-2xl font-bold text-accent">
+                                {((sub.score / sub.total_marks) * 100).toFixed(0)}%
+                            </div>
+                            <div className="text-[10px] text-panel/40 font-bold uppercase tracking-widest">Final Grade</div>
+                          </div>
+                          <button
+                            onClick={() => navigate(`/exam/results/${sub.id}`)}
+                            className="flex items-center gap-2 bg-accent text-primary px-4 py-2 rounded-lg font-bold text-sm hover:bg-accent/90 transition-all shadow-lg shadow-accent/20"
+                          >
+                            Review Script
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-white/5 flex flex-shrink-0 items-center justify-center group-hover:bg-accent group-hover:text-primary transition-all ml-2 hidden md:flex">
+                          <ChevronRight className="w-5 h-5" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </main>
     </div>
   );
