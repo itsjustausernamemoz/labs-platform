@@ -4,6 +4,7 @@ import StudentDashboard from './pages/StudentDashboard';
 import ExamRoom from './pages/ExamRoom';
 import StudentResults from './pages/StudentResults';
 import LecturerLogin from './pages/LecturerLogin';
+import LecturerSignup from './pages/LecturerSignup';
 import LecturerDashboard from './pages/LecturerDashboard';
 import Results from './pages/Results';
 
@@ -19,6 +20,7 @@ function App() {
 
         {/* Lecturer Routes */}
         <Route path="/lecturer/login" element={<LecturerLogin />} />
+        <Route path="/lecturer/signup" element={<LecturerSignup />} />
         <Route path="/lecturer/dashboard" element={<LecturerDashboard />} />
         <Route path="/lecturer/results/:examId" element={<Results />} />
 

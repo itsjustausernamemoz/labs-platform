@@ -47,6 +47,8 @@ serve(async (req) => {
       ${text}
     `
 
+    console.log(`Received request for examId: ${examId}, text length: ${text?.length}`);
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -63,12 +65,24 @@ serve(async (req) => {
       }),
     })
 
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('Anthropic API error:', errorData);
+      throw new Error(`Anthropic API error: ${response.statusText}`);
+    }
+
     const result = await response.json()
+    console.log('Anthropic response received');
     const content = result.content[0].text
 
     // Attempt to extract JSON if Claude adds conversational filler
     const jsonMatch = content.match(/\[\s*\{.*\}\s*\]/s)
-    const questions = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content)
+    if (!jsonMatch) {
+      console.error('Failed to find JSON array in Claude response:', content);
+      throw new Error('Failed to extract structured questions from the AI response.');
+    }
+    const questions = JSON.parse(jsonMatch[0])
+    console.log(`Extracted ${questions.length} questions`);
 
     // Store in database
     const supabase = createClient(

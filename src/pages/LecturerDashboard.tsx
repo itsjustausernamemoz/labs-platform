@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import {
   Plus, FileUp, Trash2, Eye, EyeOff,
   BarChart3, LogOut, Loader2, FileText,
-  Save, Edit3, UserPlus
+  Save, Edit3, UserPlus, ShieldCheck
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -41,6 +41,7 @@ const LecturerDashboard: React.FC = () => {
   const [isSavingQuestions, setIsSavingQuestions] = useState(false);
   const [enrollingExam, setEnrollingExam] = useState<Exam | null>(null);
   const [isEnrolling, setIsEnrolling] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -67,24 +68,32 @@ const LecturerDashboard: React.FC = () => {
 
   const handleCreateExam = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    setIsSubmitting(true);
+    
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
-    const { data, error } = await supabase
-      .from('exams')
-      .insert([{
-        title: newExam.title,
-        duration_minutes: newExam.duration,
-        lecturer_id: user.id
-      }])
-      .select()
-      .single();
+      const { data, error } = await supabase
+        .from('exams')
+        .insert([{
+          title: newExam.title,
+          duration_minutes: newExam.duration,
+          lecturer_id: user.id
+        }])
+        .select()
+        .single();
 
-    if (error) console.error('Error creating exam:', error);
-    else {
+      if (error) throw error;
+      
       setExams([data, ...exams]);
       setIsCreating(false);
       setNewExam({ title: '', duration: 60 });
+    } catch (err: any) {
+      console.error('Error creating exam:', err);
+      alert(err.message || 'Failed to create exam. Please check your connection and try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -240,34 +249,61 @@ const LecturerDashboard: React.FC = () => {
     if (!file) return;
 
     setUploadingExamId(examId);
+    console.log('Starting file upload for exam:', examId, 'File type:', file.type);
     try {
       let text = '';
       if (file.type === 'application/pdf') {
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const content = await page.getTextContent();
-          text += content.items.map((item: any) => item.str).join(' ') + '\n';
-        }
+        
+        // Extract text from all pages in parallel for better performance
+        const pagePromises = Array.from({ length: pdf.numPages }, (_, i) => 
+          pdf.getPage(i + 1).then(async (page) => {
+            const content = await page.getTextContent();
+            return content.items.map((item: any) => item.str).join(' ');
+          })
+        );
+        
+        const pagesText = await Promise.all(pagePromises);
+        text = pagesText.join('\n');
       } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
         const arrayBuffer = await file.arrayBuffer();
         const result = await mammoth.extractRawText({ arrayBuffer });
         text = result.value;
+        if (result.messages.length > 0) {
+          console.log('Mammoth messages:', result.messages);
+        }
       } else {
         text = await file.text();
       }
 
+      console.log('Text extraction complete. Length:', text.length, 'Characters.');
+      if (!text.trim()) {
+        throw new Error('Could not extract any text from the file. Please ensure it is not empty or protected.');
+      }
+
       // Call Edge Function to extract questions
-      const { error } = await supabase.functions.invoke('extract-questions', {
+      console.log('Invoking Edge Function extract-questions with payload size:', new TextEncoder().encode(text).length, 'bytes');
+      
+      const { data, error } = await supabase.functions.invoke('extract-questions', {
         body: { examId, text }
       });
 
-      if (error) throw error;
+      console.log('Edge Function response:', { data, error });
+
+      if (error) {
+        console.error('Supabase function error:', error);
+        throw new Error(`Cloud Error: ${error.message || 'Failed to send a request to the Edge Function'}`);
+      }
+      
+      if (data?.error) {
+        throw new Error(`AI Processing Error: ${data.error}`);
+      }
+
       alert('Questions extracted and saved successfully!');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error uploading/processing file:', err);
-      alert('Failed to process file. Check console for details.');
+      alert(err.message || 'Failed to process file. Check console for details.');
     } finally {
       setUploadingExamId(null);
     }
@@ -343,9 +379,17 @@ const LecturerDashboard: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-3 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 transition-all shadow-md"
+                    disabled={isSubmitting}
+                    className="flex-1 py-3 bg-primary text-white rounded-lg font-bold hover:bg-primary/90 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
                   >
-                    Create Exam
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      'Create Exam'
+                    )}
                   </button>
                 </div>
               </form>
@@ -592,6 +636,3 @@ const LecturerDashboard: React.FC = () => {
 
 export default LecturerDashboard;
 
-const ShieldCheck = ({ className }: { className?: string }) => (
-  <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
-);
