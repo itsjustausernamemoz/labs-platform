@@ -4,10 +4,11 @@ import { supabase } from '../lib/supabase';
 import {
   Plus, FileUp, Trash2, Eye, EyeOff,
   BarChart3, LogOut, Loader2, FileText,
-  X, Save, Edit3, Check
+  Save, Edit3, UserPlus
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
+import * as XLSX from 'xlsx';
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -38,6 +39,8 @@ const LecturerDashboard: React.FC = () => {
   const [editingExamQuestions, setEditingExamQuestions] = useState<Exam | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [isSavingQuestions, setIsSavingQuestions] = useState(false);
+  const [enrollingExam, setEnrollingExam] = useState<Exam | null>(null);
+  const [isEnrolling, setIsEnrolling] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -82,6 +85,134 @@ const LecturerDashboard: React.FC = () => {
       setExams([data, ...exams]);
       setIsCreating(false);
       setNewExam({ title: '', duration: 60 });
+    }
+  };
+
+  const fetchQuestions = async (examId: string) => {
+    const { data, error } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('exam_id', examId)
+      .order('order_index', { ascending: true });
+
+    if (error) console.error('Error fetching questions:', error);
+    else setQuestions(data || []);
+  };
+
+  const handleEditQuestions = (exam: Exam) => {
+    setEditingExamQuestions(exam);
+    fetchQuestions(exam.id);
+  };
+
+  const handleUpdateQuestion = (id: string, updates: Partial<Question>) => {
+    setQuestions(questions.map(q => q.id === id ? { ...q, ...updates } : q));
+  };
+
+  const handleAddQuestion = () => {
+    const newQ: Question = {
+      id: `new-${Date.now()}`,
+      type: 'mcq',
+      question_text: 'New Question',
+      options: ['A. ', 'B. ', 'C. ', 'D. '],
+      correct_answer: 'A',
+      marks: 1
+    };
+    setQuestions([...questions, newQ]);
+  };
+
+  const handleRemoveQuestion = (id: string) => {
+    setQuestions(questions.filter(q => q.id !== id));
+  };
+
+  const handleSaveQuestions = async () => {
+    if (!editingExamQuestions) return;
+    setIsSavingQuestions(true);
+
+    try {
+      // Delete existing questions
+      const { error: delError } = await supabase
+        .from('questions')
+        .delete()
+        .eq('exam_id', editingExamQuestions.id);
+
+      if (delError) throw delError;
+
+      // Insert updated questions
+      const toInsert = questions.map((q, idx) => {
+        const { id, ...rest } = q;
+        return {
+          ...rest,
+          exam_id: editingExamQuestions.id,
+          order_index: idx
+        };
+      });
+
+      const { error: insError } = await supabase
+        .from('questions')
+        .insert(toInsert);
+
+      if (insError) throw insError;
+      setEditingExamQuestions(null);
+    } catch (err) {
+      console.error('Error saving questions:', err);
+      alert('Failed to save questions');
+    } finally {
+      setIsSavingQuestions(false);
+    }
+  };
+
+  const handleEnrollStudents = async (examId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsEnrolling(true);
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+      // Expecting a column 'student_number'
+      const studentNumbers = jsonData
+        .map(row => row.student_number?.toString().trim())
+        .filter(num => num);
+
+      if (studentNumbers.length === 0) {
+        alert('No student numbers found in the Excel file. Please ensure there is a "student_number" column.');
+        return;
+      }
+
+      for (const num of studentNumbers) {
+        // 1. Ensure student exists
+        let { data: student, error: sError } = await supabase
+          .from('students')
+          .select('id')
+          .eq('student_number', num)
+          .single();
+
+        if (sError && sError.code === 'PGRST116') {
+          const { data: newStudent, error: iError } = await supabase
+            .from('students')
+            .insert([{ student_number: num }])
+            .select('id')
+            .single();
+          if (iError) throw iError;
+          student = newStudent;
+        } else if (sError) throw sError;
+
+        // 2. Enroll student
+        await supabase
+          .from('enrollments')
+          .upsert([{ exam_id: examId, student_id: student!.id }]);
+      }
+
+      alert(`Successfully enrolled ${studentNumbers.length} students!`);
+      setEnrollingExam(null);
+    } catch (err) {
+      console.error('Error enrolling students:', err);
+      alert('Failed to enroll students');
+    } finally {
+      setIsEnrolling(false);
     }
   };
 
@@ -272,33 +403,186 @@ const LecturerDashboard: React.FC = () => {
                   <p className="text-sm text-slate-400 mb-6">{exam.duration_minutes} Minutes</p>
 
                   <div className="space-y-3">
-                    <label className="flex items-center justify-center gap-2 w-full py-3 bg-slate-50 text-slate-600 rounded-xl cursor-pointer hover:bg-slate-100 transition-all border border-slate-200">
-                      {uploadingExamId === exam.id ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <FileUp className="w-5 h-5" />
-                      )}
-                      <span className="font-bold">Upload Doc</span>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.docx,.txt"
-                        onChange={(e) => handleFileUpload(exam.id, e)}
-                        disabled={uploadingExamId !== null}
-                      />
-                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex items-center justify-center gap-2 py-3 bg-slate-50 text-slate-600 rounded-xl cursor-pointer hover:bg-slate-100 transition-all border border-slate-200 text-sm">
+                        {uploadingExamId === exam.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <FileUp className="w-4 h-4" />
+                        )}
+                        <span className="font-bold">Upload</span>
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".pdf,.docx,.txt"
+                          onChange={(e) => handleFileUpload(exam.id, e)}
+                          disabled={uploadingExamId !== null}
+                        />
+                      </label>
+                      <button
+                        onClick={() => handleEditQuestions(exam)}
+                        className="flex items-center justify-center gap-2 py-3 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-100 transition-all border border-slate-200 text-sm font-bold"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                        Edit Qs
+                      </button>
+                    </div>
 
-                    <button
-                      onClick={() => navigate(`/lecturer/results/${exam.id}`)}
-                      className="flex items-center justify-center gap-2 w-full py-3 bg-white text-primary border border-primary rounded-xl font-bold hover:bg-primary/5 transition-all"
-                    >
-                      <BarChart3 className="w-5 h-5" />
-                      View Results
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex items-center justify-center gap-2 py-3 bg-white text-primary border border-primary rounded-xl font-bold hover:bg-primary/5 transition-all text-sm cursor-pointer">
+                        {isEnrolling && enrollingExam?.id === exam.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <UserPlus className="w-4 h-4" />
+                        )}
+                        Enroll
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".xlsx,.xls,.csv"
+                          onChange={(e) => {
+                            setEnrollingExam(exam);
+                            handleEnrollStudents(exam.id, e);
+                          }}
+                          disabled={isEnrolling}
+                        />
+                      </label>
+                      <button
+                        onClick={() => navigate(`/lecturer/results/${exam.id}`)}
+                        className="flex items-center justify-center gap-2 py-3 bg-white text-primary border border-primary rounded-xl font-bold hover:bg-primary/5 transition-all text-sm"
+                      >
+                        <BarChart3 className="w-4 h-4" />
+                        Results
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {editingExamQuestions && (
+          <div className="fixed inset-0 bg-primary z-[150] overflow-y-auto p-8">
+            <div className="max-w-4xl mx-auto">
+              <div className="flex justify-between items-center mb-10 sticky top-0 bg-primary py-4 z-10 border-b border-white/10">
+                <div>
+                  <h2 className="text-3xl font-bold text-white">Review Questions</h2>
+                  <p className="text-panel/60">{editingExamQuestions.title}</p>
+                </div>
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => setEditingExamQuestions(null)}
+                    className="px-6 py-2 text-panel/60 hover:text-white font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveQuestions}
+                    disabled={isSavingQuestions}
+                    className="bg-accent text-primary px-8 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-accent/90 transition-all shadow-lg disabled:opacity-50"
+                  >
+                    {isSavingQuestions ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                    Save All Changes
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-8 pb-20">
+                {questions.map((q) => (
+                  <div key={q.id} className="bg-white/5 border border-white/10 rounded-2xl p-6 relative group">
+                    <button
+                      onClick={() => handleRemoveQuestion(q.id)}
+                      className="absolute top-6 right-6 p-2 text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                      <div>
+                        <label className="block text-xs font-bold text-panel/40 uppercase tracking-widest mb-2">Question Type</label>
+                        <select
+                          value={q.type}
+                          onChange={(e) => handleUpdateQuestion(q.id, { type: e.target.value as any })}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 outline-none focus:border-accent text-white"
+                        >
+                          <option value="mcq">Multiple Choice (MCQ)</option>
+                          <option value="structured">Structured / Open-ended</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-panel/40 uppercase tracking-widest mb-2">Marks</label>
+                        <input
+                          type="number"
+                          value={q.marks}
+                          onChange={(e) => handleUpdateQuestion(q.id, { marks: parseInt(e.target.value) })}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 outline-none focus:border-accent text-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mb-6">
+                      <label className="block text-xs font-bold text-panel/40 uppercase tracking-widest mb-2">Question Text</label>
+                      <textarea
+                        value={q.question_text}
+                        onChange={(e) => handleUpdateQuestion(q.id, { question_text: e.target.value })}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-accent text-white h-24 resize-none"
+                      />
+                    </div>
+
+                    {q.type === 'mcq' ? (
+                      <div>
+                        <label className="block text-xs font-bold text-panel/40 uppercase tracking-widest mb-2">Options & Correct Answer</label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(q.options || []).map((opt, optIdx) => (
+                            <div key={optIdx} className="flex gap-2 items-center">
+                              <button
+                                onClick={() => handleUpdateQuestion(q.id, { correct_answer: String.fromCharCode(65 + optIdx) })}
+                                className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold border transition-all ${
+                                  q.correct_answer === String.fromCharCode(65 + optIdx)
+                                    ? 'bg-accent border-accent text-primary'
+                                    : 'bg-white/5 border-white/10 text-white'
+                                }`}
+                              >
+                                {String.fromCharCode(65 + optIdx)}
+                              </button>
+                              <input
+                                type="text"
+                                value={opt}
+                                onChange={(e) => {
+                                  const newOpts = [...(q.options || [])];
+                                  newOpts[optIdx] = e.target.value;
+                                  handleUpdateQuestion(q.id, { options: newOpts });
+                                }}
+                                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2 outline-none focus:border-accent text-white text-sm"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-bold text-panel/40 uppercase tracking-widest mb-2">Model Answer</label>
+                        <textarea
+                          value={q.correct_answer}
+                          onChange={(e) => handleUpdateQuestion(q.id, { correct_answer: e.target.value })}
+                          className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 outline-none focus:border-accent text-white h-32 resize-none"
+                          placeholder="Provide the ideal answer for AI grading reference..."
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                <button
+                  onClick={handleAddQuestion}
+                  className="w-full py-6 border-2 border-dashed border-white/10 rounded-2xl text-panel/40 hover:text-accent hover:border-accent/50 transition-all flex flex-col items-center gap-2"
+                >
+                  <Plus className="w-8 h-8" />
+                  <span className="font-bold uppercase tracking-widest text-xs">Add New Question</span>
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </main>

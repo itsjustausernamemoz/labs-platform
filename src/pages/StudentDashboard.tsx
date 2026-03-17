@@ -31,14 +31,28 @@ const StudentDashboard: React.FC = () => {
 
   const fetchActiveExams = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from('exams')
-      .select('*')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
+    const storedStudent = localStorage.getItem('student');
+    if (!storedStudent) return;
+    const studentId = JSON.parse(storedStudent).id;
 
-    if (error) console.error('Error fetching exams:', error);
-    else setExams(data || []);
+    // Fetch exams where student is enrolled AND exam is active
+    const { data, error } = await supabase
+      .from('enrollments')
+      .select(`
+        exam:exams(*)
+      `)
+      .eq('student_id', studentId)
+      .filter('exam.is_active', 'eq', true)
+      .order('enrolled_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching exams:', error);
+    } else {
+      const activeExams = (data || [])
+        .map((e: any) => e.exam)
+        .filter(exam => exam && exam.is_active);
+      setExams(activeExams);
+    }
     setIsLoading(false);
   };
 
