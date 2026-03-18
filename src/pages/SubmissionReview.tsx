@@ -230,6 +230,24 @@ const SubmissionReview: React.FC = () => {
           </div>
         </div>
 
+        {/* Violation Warning Banner */}
+        {submission.marking_details?.violation && (
+          <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 mb-8 flex items-start gap-4">
+            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center text-red-600 shrink-0">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-red-800">Autosubmitted due to Security Violations</h3>
+              <p className="text-red-700 font-medium mt-1">
+                {submission.marking_details.violation.feedback || "This exam was automatically submitted because the student exceeded the allowed number of security violations."}
+              </p>
+              <p className="text-sm text-red-600/80 mt-2">
+                As a lecturer, you can manually mark the questions below to override this automatic zero score if necessary.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-8">
           {questions.map((q, index) => {
             const detail = submission.marking_details[q.id] || { awarded_marks: 0, feedback: 'Not marked' };
@@ -268,11 +286,17 @@ const SubmissionReview: React.FC = () => {
                   <div className="space-y-4">
                     <div>
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Student Answer</h4>
-                      <pre
-                        className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-slate-700 font-mono text-sm whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-64"
-                      >
-                        {studentAnswer}
-                      </pre>
+                      {studentAnswer === '(No Answer)' ? (
+                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-slate-400 italic text-sm">
+                          No answer provided for this question.
+                        </div>
+                      ) : (
+                        <pre
+                          className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-slate-700 font-mono text-sm whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-64"
+                        >
+                          {studentAnswer}
+                        </pre>
+                      )}
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Model / Correct Answer</h4>
@@ -289,10 +313,20 @@ const SubmissionReview: React.FC = () => {
                       <Info className="w-3 h-3" />
                       Marking Feedback
                     </h4>
-                    <div className={`p-4 rounded-xl border ${detail.awarded_marks === q.marks ? 'bg-green-50 border-green-100 text-green-800' : 'bg-orange-50 border-orange-100 text-orange-800'}`}>
-                      <p className="text-sm font-medium leading-relaxed">{detail.feedback}</p>
+                    <div className={`p-4 rounded-xl border ${
+                      submission.marking_details?.violation 
+                        ? 'bg-red-50/50 border-red-100 text-red-800' 
+                        : detail.awarded_marks === q.marks 
+                          ? 'bg-green-50 border-green-100 text-green-800' 
+                          : 'bg-orange-50 border-orange-100 text-orange-800'
+                    }`}>
+                      <p className="text-sm font-medium leading-relaxed">
+                        {submission.marking_details?.violation 
+                          ? "Individual marking suppressed due to violation. Adjust 'Awarded' to mark manually."
+                          : detail.feedback}
+                      </p>
                     </div>
-                    {detail.awarded_marks !== overrides[q.id] && overrides[q.id] !== undefined && (
+                    {(detail.awarded_marks !== overrides[q.id] && overrides[q.id] !== undefined) && (
                       <div className="flex items-center gap-2 text-xs font-bold text-accent bg-primary px-3 py-1.5 rounded-lg w-fit">
                         <AlertCircle className="w-3 h-3" />
                         Manually Adjusted

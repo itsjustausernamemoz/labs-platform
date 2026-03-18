@@ -22,6 +22,7 @@ interface Exam {
   created_at: string;
   total_marks?: number;
   allowed_violations?: number;
+  enrollment_code: string;
 }
 
 interface Question {
@@ -41,7 +42,8 @@ const LecturerDashboard: React.FC = () => {
     title: '', 
     duration: 60,
     total_marks: 100,
-    allowed_violations: 3
+    allowed_violations: 3,
+    enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase()
   });
   const [uploadingExamId, setUploadingExamId] = useState<string | null>(null);
   const [editingExamQuestions, setEditingExamQuestions] = useState<Exam | null>(null);
@@ -94,7 +96,8 @@ const LecturerDashboard: React.FC = () => {
           duration_minutes: newExam.duration,
           lecturer_id: user.id,
           total_marks: newExam.total_marks,
-          allowed_violations: newExam.allowed_violations
+          allowed_violations: newExam.allowed_violations,
+          enrollment_code: newExam.enrollment_code
         }])
         .select()
         .single();
@@ -107,7 +110,8 @@ const LecturerDashboard: React.FC = () => {
         title: '', 
         duration: 60, 
         total_marks: 100,
-        allowed_violations: 3 
+        allowed_violations: 3,
+        enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase()
       });
       showToast('Exam created successfully!', 'success');
     } catch (err: any) {
@@ -217,7 +221,8 @@ const LecturerDashboard: React.FC = () => {
       }
 
       // 1. Bulk upsert students to ensure they exist
-      const studentsToUpsert = studentNumbers.map(num => ({ student_number: num }));
+      const uniqueStudentNumbers = [...new Set(studentNumbers)];
+      const studentsToUpsert = uniqueStudentNumbers.map(num => ({ student_number: num }));
       const { data: upsertedStudents, error: upsertError } = await supabase
         .from('students')
         .upsert(studentsToUpsert, { onConflict: 'student_number' })
@@ -314,6 +319,22 @@ const LecturerDashboard: React.FC = () => {
     if (error) console.error('Error updating exam:', error);
     else {
       setExams(exams.map(e => e.id === id ? { ...e, is_active: !currentStatus } : e));
+    }
+  };
+
+  const regenerateEnrollmentCode = async (examId: string) => {
+    const newCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const { error } = await supabase
+      .from('exams')
+      .update({ enrollment_code: newCode })
+      .eq('id', examId);
+
+    if (error) {
+      console.error('Error regenerating code:', error);
+      showToast('Failed to regenerate code', 'error');
+    } else {
+      setExams(exams.map(e => e.id === examId ? { ...e, enrollment_code: newCode } : e));
+      showToast('New enrollment code generated!', 'success');
     }
   };
 
@@ -487,6 +508,18 @@ const LecturerDashboard: React.FC = () => {
                       className="w-full border border-slate-200 rounded-lg px-4 py-2 outline-none focus:border-primary transition-all"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-600 mb-1">Enrollment Code</label>
+                    <input
+                      type="text"
+                      required
+                      value={newExam.enrollment_code}
+                      onChange={(e) => setNewExam({ ...newExam, enrollment_code: e.target.value.toUpperCase() })}
+                      className="w-full border border-slate-200 rounded-lg px-4 py-2 outline-none focus:border-primary transition-all font-mono font-bold tracking-widest"
+                      maxLength={6}
+                      placeholder="6-CHARS"
+                    />
+                  </div>
                 </div>
 
                 <div className="flex gap-3 mt-8">
@@ -564,7 +597,30 @@ const LecturerDashboard: React.FC = () => {
                     </div>
                   </div>
                   <h3 className="text-xl font-bold text-primary mb-1 line-clamp-1">{exam.title}</h3>
-                  <p className="text-sm text-slate-400 mb-6">{exam.duration_minutes} Minutes</p>
+                  <div className="flex items-center justify-between mb-6">
+                    <p className="text-sm text-slate-400">{exam.duration_minutes} Minutes</p>
+                    <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Code:</span>
+                      <code className="text-xs font-bold text-primary tracking-widest">{exam.enrollment_code}</code>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(exam.enrollment_code);
+                          showToast('Code copied to clipboard!', 'success');
+                        }}
+                        className="p-1 hover:bg-slate-200 rounded transition-colors text-slate-400 hover:text-primary"
+                        title="Copy code"
+                      >
+                         <Plus className="w-3 h-3 rotate-45" />
+                      </button>
+                      <button
+                        onClick={() => regenerateEnrollmentCode(exam.id)}
+                        className="p-1 hover:bg-slate-200 rounded transition-colors text-slate-400 hover:text-primary"
+                        title="Regenerate code"
+                      >
+                         <ShieldCheck className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
 
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-2">

@@ -121,11 +121,36 @@ const ExamRoom: React.FC = () => {
     document.addEventListener('contextmenu', preventDefaults);
     window.addEventListener('keydown', handleKeyDown);
 
+    // Navigation blocking - prevent accidental back and refresh
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Only show warning if not currently submitting
+      if (!isSubmitting) {
+        e.preventDefault();
+        e.returnValue = ''; // Standard way to show browser confirmation
+      }
+    };
+
+    const handlePopState = () => {
+      if (!isSubmitting) {
+        // Push state back to prevent navigation
+        window.history.pushState(null, '', window.location.href);
+        showToast('Back navigation is disabled during the exam. Please submit your exam when finished.', 'error');
+      }
+    };
+
+    // Initialize history state for popstate to work
+    window.history.pushState(null, '', window.location.href);
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('popstate', handlePopState);
+
     return () => {
       document.removeEventListener('contextmenu', preventDefaults);
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [isSubmitting, showToast]);
 
   const [examEndTime, setExamEndTime] = useState<number | null>(null);
 
@@ -223,7 +248,7 @@ const ExamRoom: React.FC = () => {
           total_marks: totalMarks,
           score: 0,
           graded: true,
-          is_manual: true,
+          is_manual: false,
           marking_details: { violation: { awarded_marks: 0, feedback: "Automatic zero due to maximum tab/blur violations." } }
         }]);
 

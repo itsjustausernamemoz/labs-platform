@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   BookOpen, Clock, ChevronRight, ArrowRight,
-  LogOut, GraduationCap, ShieldCheck, CheckCircle2, AlertCircle
+  LogOut, GraduationCap, ShieldCheck, CheckCircle2, AlertCircle, Loader2
 } from 'lucide-react';
+import { useNotification } from '../components/NotificationProvider';
 
 interface Exam {
   id: string;
@@ -28,7 +29,10 @@ const StudentDashboard: React.FC = () => {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [student, setStudent] = useState<any>(null);
+  const [joinCode, setJoinCode] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
   const navigate = useNavigate();
+  const { showToast } = useNotification();
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
@@ -146,6 +150,64 @@ const StudentDashboard: React.FC = () => {
     }
   };
 
+  const handleJoinExam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!joinCode || !student) return;
+
+    setIsJoining(true);
+    try {
+      // 1. Search for exam with this code
+      const { data: exam, error: examError } = await supabase
+        .from('exams')
+        .select('id, title, is_active')
+        .eq('enrollment_code', joinCode.toUpperCase().trim())
+        .single();
+
+      if (examError || !exam) {
+        showToast('Invalid enrollment code. Please check with your lecturer.', 'error');
+        return;
+      }
+
+      if (!exam.is_active) {
+        showToast('This examination is currently not active.', 'error');
+        return;
+      }
+
+      // 2. Check if already enrolled
+      const { data: existing } = await supabase
+        .from('enrollments')
+        .select('*')
+        .eq('exam_id', exam.id)
+        .eq('student_id', student.id)
+        .maybeSingle();
+
+      if (existing) {
+        showToast('You are already enrolled in this examination.', 'info');
+        setJoinCode('');
+        return;
+      }
+
+      // 3. Enroll student
+      const { error: enrollError } = await supabase
+        .from('enrollments')
+        .insert([{
+          exam_id: exam.id,
+          student_id: student.id
+        }]);
+
+      if (enrollError) throw enrollError;
+
+      showToast(`Successfully enrolled in ${exam.title}!`, 'success');
+      setJoinCode('');
+      fetchDashboardData();
+    } catch (err) {
+      console.error('Error joining exam:', err);
+      showToast('Failed to join examination. Please try again.', 'error');
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('student');
     navigate('/');
@@ -169,9 +231,30 @@ const StudentDashboard: React.FC = () => {
       </nav>
 
       <main className="max-w-5xl mx-auto p-8">
-        <header className="mb-12">
-          <h1 className="text-4xl font-bold mb-2">Available Examinations</h1>
-          <p className="text-panel/60">Select an exam to begin. Ensure you are in a quiet environment.</p>
+        <header className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <h1 className="text-4xl font-bold mb-2">Available Examinations</h1>
+            <p className="text-panel/60">Select an exam to begin. Ensure you are in a quiet environment.</p>
+          </div>
+          
+          <form onSubmit={handleJoinExam} className="flex gap-2 bg-white/5 p-2 rounded-2xl border border-white/10 w-full md:w-auto">
+            <input
+              type="text"
+              placeholder="ENTER EXAM CODE"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+              className="bg-transparent border-none outline-none px-4 py-2 text-sm font-bold tracking-widest w-full md:w-48 placeholder:text-panel/20"
+              maxLength={6}
+            />
+            <button
+              type="submit"
+              disabled={isJoining || !joinCode}
+              className="bg-accent text-primary px-6 py-2 rounded-xl font-bold text-sm hover:bg-accent/90 transition-all disabled:opacity-50 flex items-center gap-2 shrink-0"
+            >
+              {isJoining ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              Join Exam
+            </button>
+          </form>
         </header>
 
         {isLoading ? (
