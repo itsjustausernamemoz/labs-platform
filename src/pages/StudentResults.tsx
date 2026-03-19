@@ -76,6 +76,11 @@ const StudentResults: React.FC = () => {
             {percentage.toFixed(0)}%
           </div>
           <div className="text-panel/60 font-medium">Overall Performance</div>
+          {(submission.marked_by_name || submission.marked_by_email) && (
+            <p className="text-[10px] text-panel/30 italic mt-2 font-medium tracking-wide">
+              Marked by: <span className="text-accent/60 not-italic">{submission.marked_by_name || submission.marked_by_email}</span>
+            </p>
+          )}
         </div>
 
         <div className="space-y-4 mb-10">

@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
-  ArrowLeft, Users, Trophy, AlertCircle,
-  Calendar, CheckCircle2, Search, FileEdit, ShieldCheck, Download
+  Calendar, Search, FileEdit, Download, Trash2,
+  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -17,18 +17,23 @@ interface Submission {
   total_marks: number;
   graded: boolean;
   is_manual: boolean;
+  status?: 'draft' | 'submitted';
   submitted_at: string;
-  violations_count: number;
+  violations_count?: number;
+  marked_by_email?: string;
+  marked_by_name?: string;
 }
 
 const Results: React.FC = () => {
   const { examId } = useParams();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [enrollments, setEnrollments] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'submissions' | 'students'>('submissions');
+  const [trashSubmissions, setTrashSubmissions] = useState<Submission[]>([]);
+  const [activeTab, setActiveTab] = useState<'submissions' | 'students' | 'trash'>('submissions');
   const [examTitle, setExamTitle] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { showToast, showConfirm } = useNotification();
 
@@ -45,62 +50,183 @@ const Results: React.FC = () => {
       if (exam) setExamTitle(exam.title);
 
       // 1. Fetch Submissions
-      const { data: subs, error: subsError } = await supabase
-        .from('submissions')
-        .select(`
-          id,
-          student_id,
-          score,
-          total_marks,
-          graded,
-          is_manual,
-          submitted_at,
-          student:students(student_number)
-        `)
-        .eq('exam_id', examId);
+      let enriched: Submission[] = [];
+      try {
+        const { data: subs, error: subsError } = await supabase
+          .from('submissions')
+          .select(`
+            id,
+            student_id,
+            score,
+            total_marks,
+            graded,
+            is_manual,
+            status,
+            submitted_at,
+            marked_by_email,
+            marked_by_name,
+            student:students(student_number)
+          `)
+          .eq('exam_id', examId);
 
-      if (subsError) throw subsError;
+        if (subsError) {
+          console.warn('Primary submissions fetch failed (likely missing status column), trying fallback...', subsError);
+          // Fallback without status column for backward compatibility
+          const { data: fallbackSubs, error: fallbackError } = await supabase
+            .from('submissions')
+            .select(`
+              id,
+              student_id,
+              score,
+              total_marks,
+              graded,
+              is_manual,
+              status,
+              submitted_at,
+              marked_by_email,
+              marked_by_name,
+              student:students(student_number)
+            `)
+            .eq('exam_id', examId);
+            
+          if (fallbackError) throw fallbackError;
 
-      const enriched = await Promise.all((subs || []).map(async (sub: any) => {
-        const { count } = await supabase
-          .from('violations')
-          .select('*', { count: 'exact', head: true })
-          .eq('exam_id', examId)
-          .eq('student_id', sub.student_id);
+          enriched = await Promise.all((fallbackSubs || []).map(async (sub: any) => {
+            const { count } = await supabase
+              .from('violations')
+              .select('*', { count: 'exact', head: true })
+              .eq('exam_id', examId)
+              .eq('student_id', sub.student_id);
 
-        return {
-          ...sub,
-          violations_count: count || 0
-        };
-      }));
+            return {
+              ...sub,
+              status: 'submitted', // Default if column is missing
+              violations_count: count || 0
+            };
+          }));
+        } else {
+          enriched = await Promise.all((subs || []).map(async (sub: any) => {
+            const { count } = await supabase
+              .from('violations')
+              .select('*', { count: 'exact', head: true })
+              .eq('exam_id', examId)
+              .eq('student_id', sub.student_id);
 
-      const uniqueSubmissionsMap = new Map();
-      enriched.forEach(sub => {
-        if (!uniqueSubmissionsMap.has(sub.student_id)) {
-          uniqueSubmissionsMap.set(sub.student_id, sub);
+            return {
+              ...sub,
+              violations_count: count || 0
+            };
+          }));
         }
-      });
-      setSubmissions(Array.from(uniqueSubmissionsMap.values()));
+        setSubmissions(enriched || []);
+      } catch (err) {
+        console.error('Error fetching submissions:', err);
+        showToast('Failed to fetch submissions. Please check your database migrations.', 'error');
+      }
 
-      // 2. Fetch All Enrolled Students (including those who haven't submitted)
-      const { data: enrolls, error: enrollError } = await supabase
-        .from('enrollments')
-        .select(`
-          id,
-          student_id,
-          enrolled_at,
-          student:students(student_number)
-        `)
-        .eq('exam_id', examId);
+      // 2. Fetch All Enrolled Students (Independent of submissions)
+      try {
+        const { data: enrolls, error: enrollError } = await supabase
+          .from('enrollments')
+          .select(`
+            id,
+            student_id,
+            enrolled_at,
+            student:students(student_number)
+          `)
+          .eq('exam_id', examId);
 
-      if (enrollError) throw enrollError;
-      setEnrollments(enrolls || []);
+        if (enrollError) throw enrollError;
+        setEnrollments(enrolls || []);
+      } catch (err) {
+        console.error('Error fetching enrollments:', err);
+      }
+
+      // 3. Fetch Trash (Deleted Submissions)
+      try {
+        const { data: trash, error: trashError } = await supabase
+          .from('deleted_submissions')
+          .select(`
+            id,
+            student_id,
+            score,
+            total_marks,
+            graded,
+            is_manual,
+            status,
+            submitted_at,
+            marked_by_email,
+            marked_by_name,
+            student:students(student_number)
+          `)
+          .eq('exam_id', examId);
+
+        if (!trashError) {
+          const enrichedTrash = (trash || []).map(t => ({
+            ...t,
+            // Handle the case where student might be an array or null
+            student: Array.isArray(t.student) ? t.student[0] : t.student,
+            violations_count: 0
+          }));
+          setTrashSubmissions(enrichedTrash as any[]);
+        }
+      } catch (err) {
+        console.error('Error fetching deleted submissions:', err);
+      }
 
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  const handleDeleteSubmission = async (submissionId: string) => {
+    showConfirm({
+      title: 'Delete Submission',
+      message: 'Are you sure you want to delete this submission? This action cannot be undone and the student will lose their answers for this attempt.',
+      onConfirm: async () => {
+        const { error, count } = await supabase
+          .from('submissions')
+          .delete({ count: 'exact' })
+          .eq('id', submissionId);
+
+        if (error) {
+          console.error('Delete error:', error);
+          showToast(`Failed to delete submission: ${error.message}`, 'error');
+        } else if (count === 0) {
+          showToast('Submission not found or permission denied.', 'error');
+        } else {
+          showToast('Submission deleted successfully', 'success');
+          fetchResults();
+        }
+      }
+    });
+  };
+
+  const handleResumeSession = async (submissionId: string, studentNumber: string) => {
+    showConfirm({
+      title: 'Resume Student Session',
+      message: `Do you want to allow student ${studentNumber} to resume their exam? Their latest submission will be converted back to a draft, allowing them to continue where they left off.`,
+      onConfirm: async () => {
+        const { error } = await supabase
+          .from('submissions')
+          .update({ 
+            status: 'draft',
+            graded: false,
+            score: 0,
+            is_manual: false
+          })
+          .eq('id', submissionId);
+
+        if (error) {
+          showToast('Failed to resume session', 'error');
+        } else {
+          showToast('Session is now resumable by the student', 'success');
+          fetchResults();
+        }
+      }
+    });
   };
 
   const handleUnenroll = async (enrollmentId: string, studentNumber: string) => {
@@ -124,28 +250,136 @@ const Results: React.FC = () => {
     });
   };
 
+  const handleRestoreSubmission = async (sub: Submission) => {
+    showConfirm({
+      title: 'Restore Submission',
+      message: `Do you want to restore student ${sub.student?.student_number}'s submission? It will be moved back to the active list.`,
+      onConfirm: async () => {
+        // Fetch full record from trash first (to get answers)
+        const { data: fullSub, error: fetchError } = await supabase
+          .from('deleted_submissions')
+          .select('*')
+          .eq('id', sub.id)
+          .single();
+
+        if (fetchError || !fullSub) {
+          showToast('Failed to fetch submission from trash', 'error');
+          return;
+        }
+
+        // Move back to submissions
+        const { error: insertError } = await supabase
+          .from('submissions')
+          .insert([{
+            id: fullSub.id,
+            exam_id: fullSub.exam_id,
+            student_id: fullSub.student_id,
+            answers: fullSub.answers,
+            score: fullSub.score,
+            total_marks: fullSub.total_marks,
+            graded: fullSub.graded,
+            is_manual: fullSub.is_manual,
+            status: fullSub.status || 'submitted',
+            marking_details: fullSub.marking_details,
+            submitted_at: fullSub.submitted_at,
+            marked_by_email: fullSub.marked_by_email,
+            marked_by_name: fullSub.marked_by_name
+          }]);
+
+        if (insertError) {
+          console.error('Restore insert error:', insertError);
+          showToast('Failed to restore: ' + insertError.message, 'error');
+          return;
+        }
+
+        // Delete from trash
+        await supabase.from('deleted_submissions').delete().eq('id', sub.id);
+        
+        showToast('Submission restored successfully', 'success');
+        fetchResults();
+      }
+    });
+  };
+
+  const handlePermanentDelete = async (submissionId: string) => {
+    showConfirm({
+      title: 'Permanent Delete',
+      message: 'Are you sure? This will permanently remove the submission from the Trash Box. This cannot be undone.',
+      onConfirm: async () => {
+        const { error } = await supabase
+          .from('deleted_submissions')
+          .delete()
+          .eq('id', submissionId);
+
+        if (error) {
+          showToast('Failed to delete permanently', 'error');
+        } else {
+          showToast('Permanently deleted from trash', 'success');
+          fetchResults();
+        }
+      }
+    });
+  };
+
   useEffect(() => {
     fetchResults();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examId]);
 
-  const filteredSubmissions = submissions.filter(s =>
-    s.student.student_number.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Group submissions by student
+  const groupedSubmissions = React.useMemo(() => {
+    const groups: Record<string, { student: any, submissions: Submission[] }> = {};
+    
+    submissions.forEach(sub => {
+      if (!groups[sub.student_id]) {
+        groups[sub.student_id] = {
+          student: sub.student,
+          submissions: []
+        };
+      }
+      groups[sub.student_id].submissions.push(sub);
+    });
 
-  const averageScore = submissions.length > 0
-    ? (submissions.reduce((acc, curr) => acc + (curr.score / curr.total_marks), 0) / submissions.length * 100).toFixed(1)
+    // Sort submissions within each group by date (latest first)
+    Object.values(groups).forEach(group => {
+      group.submissions.sort((a, b) => 
+        new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
+      );
+    });
+
+    return Object.entries(groups).map(([id, data]) => ({
+      student_id: id,
+      ...data
+    })).filter(group => 
+      group.student.student_number.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [submissions, searchTerm]);
+
+  const averageScore = submissions.filter(s => s.status === 'submitted').length > 0
+    ? (submissions.filter(s => s.status === 'submitted').reduce((acc, curr) => acc + (curr.score / (curr.total_marks || 1)), 0) / submissions.filter(s => s.status === 'submitted').length * 100).toFixed(1)
     : 0;
 
   const handleDownloadScript = () => {
     if (submissions.length === 0) return;
 
-    // Prepare data for the script
-    const data = submissions.map(sub => ({
-      'Student Number': sub.student.student_number,
-      'Score (%)': ((sub.score / sub.total_marks) * 100).toFixed(1),
-      'Status': sub.is_manual ? 'Lecturer Marked' : sub.graded ? 'Marked' : 'Pending',
-      'Violations': sub.violations_count
+    // Prepare data for the script - only keep the latest submission per student for the report
+    const reportDataMap = new Map();
+    submissions.forEach(sub => {
+      if (!reportDataMap.has(sub.student_id)) {
+        reportDataMap.set(sub.student_id, sub);
+      } else {
+        const existing = reportDataMap.get(sub.student_id);
+        if (new Date(sub.submitted_at) > new Date(existing.submitted_at)) {
+          reportDataMap.set(sub.student_id, sub);
+        }
+      }
+    });
+
+    const data = Array.from(reportDataMap.values()).map(sub => ({
+      'Student Number': sub.student?.student_number || 'Unknown',
+      'Score (%)': ((sub.score / (sub.total_marks || 1)) * 100).toFixed(1),
+      'Status': sub.is_manual ? 'Lecturer Marked' : sub.graded ? 'Auto-Graded' : 'Pending',
+      'Violations': sub.violations_count ?? 0
     }));
 
     // Create a new workbook and add the data as a worksheet
@@ -188,7 +422,7 @@ const Results: React.FC = () => {
             }`}
           >
             {isRefreshing && activeTab === 'submissions' && <Loader2 className="w-4 h-4 animate-spin" />}
-            Submissions ({submissions.length})
+            Students ({groupedSubmissions.length})
           </button>
           <button
             onClick={() => setActiveTab('students')}
@@ -200,6 +434,17 @@ const Results: React.FC = () => {
           >
             {isRefreshing && activeTab === 'students' && <Loader2 className="w-4 h-4 animate-spin" />}
             Enrolled Students ({enrollments.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('trash')}
+            className={`px-6 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${
+              activeTab === 'trash' 
+                ? 'bg-red-500 text-white shadow-md' 
+                : 'bg-white text-slate-400 hover:bg-slate-50 border border-slate-200'
+            }`}
+          >
+            {isRefreshing && activeTab === 'trash' && <Loader2 className="w-4 h-4 animate-spin" />}
+            Trash ({trashSubmissions.length})
           </button>
         </div>
 
@@ -228,7 +473,7 @@ const Results: React.FC = () => {
             </div>
             <div>
               <p className="text-sm text-slate-500 font-medium">High Violations</p>
-              <p className="text-2xl font-bold text-primary">{submissions.filter(s => s.violations_count >= 2).length}</p>
+              <p className="text-2xl font-bold text-primary">{submissions.filter(s => (s.violations_count ?? 0) >= 2).length}</p>
             </div>
           </div>
         </div>
@@ -236,7 +481,7 @@ const Results: React.FC = () => {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <h2 className="text-xl font-bold text-primary">
-              {activeTab === 'submissions' ? 'Submission Results' : 'Enrolled Candidates'}
+              {activeTab === 'submissions' ? 'Submission Results' : activeTab === 'students' ? 'Enrolled Candidates' : 'Trash Box'}
             </h2>
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative">
@@ -277,62 +522,141 @@ const Results: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredSubmissions.map((sub) => (
-                    <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-primary">{sub.student.student_number}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold">{sub.score}</span>
-                          <span className="text-slate-400 text-sm">/ {sub.total_marks}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-500">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4" />
-                          {format(new Date(sub.submitted_at), 'MMM d, HH:mm')}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${
-                          sub.violations_count === 0 ? 'text-green-600 bg-green-50' :
-                          sub.violations_count >= 3 ? 'text-red-600 bg-red-50' :
-                          'text-orange-600 bg-orange-50'
-                        }`}>
-                          {sub.violations_count} Detected
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        {sub.is_manual ? (
-                          <div className="flex items-center gap-1 text-accent text-sm font-bold">
-                            <ShieldCheck className="w-4 h-4" />
-                            Lecturer Marked
-                          </div>
-                        ) : sub.graded ? (
-                          <div className="flex items-center gap-1 text-green-600 text-sm font-medium">
-                            <CheckCircle2 className="w-4 h-4" />
-                            AI Marked
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 text-orange-500 text-sm font-medium">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Marking...
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <button
-                          onClick={() => navigate(`/lecturer/review/${sub.id}`)}
-                          className="flex items-center gap-1.5 text-accent hover:text-accent/80 font-bold text-xs uppercase tracking-wider bg-accent/10 px-3 py-1.5 rounded-lg transition-colors"
+                  {groupedSubmissions.map((group) => {
+                    const latest = group.submissions[0];
+                    const isExpanded = expandedStudentId === group.student_id;
+                    
+                    return (
+                      <React.Fragment key={group.student_id}>
+                        <tr 
+                          className={`hover:bg-slate-50 transition-colors cursor-pointer ${isExpanded ? 'bg-slate-50/50' : ''}`}
+                          onClick={() => setExpandedStudentId(isExpanded ? null : group.student_id)}
                         >
-                          <FileEdit className="w-3.5 h-3.5" />
-                          Review
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          <td className="px-6 py-4 font-bold text-primary">
+                            <div className="flex items-center gap-2">
+                              {group.submissions.length > 1 && (
+                                <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                              )}
+                              {group.student?.student_number || 'Unknown'}
+                              {group.submissions.length > 1 && (
+                                <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded-full">
+                                  {group.submissions.length} attempts
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold">{latest.score}</span>
+                              <span className="text-slate-400 text-sm">/ {latest.total_marks}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-500">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-4 h-4" />
+                              {format(new Date(latest.submitted_at), 'MMM d, HH:mm')}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                              (latest.violations_count ?? 0) === 0 ? 'text-green-600 bg-green-50' :
+                              (latest.violations_count ?? 0) >= 3 ? 'text-red-600 bg-red-50' :
+                              'text-orange-600 bg-orange-50'
+                            }`}>
+                              {latest.violations_count ?? 0} Detected
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-500">
+                            <div className="flex items-center justify-between gap-4">
+                              <span>
+                                {latest.status === 'draft' ? 'In Progress' : latest.is_manual ? 'Lecturer Marked' : latest.graded ? 'Auto-Graded' : 'Marking...'}
+                              </span>
+                              {latest.marked_by_name || latest.marked_by_email ? (
+                                <p className="text-[9px] text-slate-400 font-bold italic mt-1 text-right">
+                                  By: {latest.marked_by_name || latest.marked_by_email}
+                                </p>
+                              ) : null}
+                              <FileEdit className="w-4 h-4 text-slate-300" />
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={6} className="bg-slate-50/30 px-6 py-4">
+                              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-inner">
+                                <table className="w-full text-xs">
+                                  <thead className="bg-slate-50 text-slate-400 uppercase tracking-wider font-bold">
+                                    <tr>
+                                      <th className="px-4 py-2 text-left">Attempt Date</th>
+                                      <th className="px-4 py-2 text-left">Score</th>
+                                      <th className="px-4 py-2 text-left">Status</th>
+                                      <th className="px-4 py-2 text-right">Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {group.submissions.map((sub) => (
+                                      <tr key={sub.id} className="hover:bg-slate-50">
+                                        <td className="px-4 py-3 text-slate-500">
+                                          {format(new Date(sub.submitted_at), 'MMM d, yyyy HH:mm:ss')}
+                                        </td>
+                                        <td className="px-4 py-3 font-bold">
+                                          {sub.score} / {sub.total_marks}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                          <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
+                                            sub.status === 'draft' ? 'bg-slate-100 text-slate-500' :
+                                            sub.graded ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'
+                                          }`}>
+                                            {sub.status === 'draft' ? 'Draft' : sub.is_manual ? 'Manual' : sub.graded ? 'Auto' : 'Pending'}
+                                          </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                          <div className="flex items-center justify-end gap-2">
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                navigate(`/lecturer/review/${sub.id}`);
+                                              }}
+                                              className="text-accent hover:underline font-bold"
+                                            >
+                                              Review
+                                            </button>
+                                            {sub.status === 'submitted' && (
+                                              <button
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleResumeSession(sub.id, group.student.student_number);
+                                                }}
+                                                className="text-blue-500 hover:underline font-bold"
+                                              >
+                                                Resume
+                                              </button>
+                                            )}
+                                            <button
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteSubmission(sub.id);
+                                              }}
+                                              className="text-red-400 hover:text-red-600"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
-            ) : (
+            ) : activeTab === 'students' ? (
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
@@ -373,14 +697,59 @@ const Results: React.FC = () => {
                     })}
                 </tbody>
               </table>
-            )}
-            {(activeTab === 'submissions' ? filteredSubmissions : enrollments).length === 0 && (
+            ) : activeTab === 'trash' ? (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
+                    <th className="px-6 py-4">Student Number</th>
+                    <th className="px-6 py-4">Previous Score</th>
+                    <th className="px-6 py-4">Deleted At</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {trashSubmissions.map((sub) => (
+                    <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 font-bold text-slate-600">{sub.student?.student_number || 'Unknown'}</td>
+                      <td className="px-6 py-4 font-bold text-slate-400">
+                        {sub.score} / {sub.total_marks}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-400">
+                        {format(new Date((sub as any).deleted_at || sub.submitted_at), 'MMM d, HH:mm')}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={() => handleRestoreSubmission(sub)}
+                            className="bg-green-50 text-green-600 px-4 py-1.5 rounded-lg font-bold text-xs uppercase tracking-wider hover:bg-green-100"
+                          >
+                            Restore
+                          </button>
+                          <button
+                            onClick={() => handlePermanentDelete(sub.id)}
+                            className="text-red-400 hover:text-red-600"
+                            title="Permanent delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+            {(activeTab === 'submissions' && groupedSubmissions.length === 0) ||
+             (activeTab === 'students' && enrollments.length === 0) ||
+             (activeTab === 'trash' && trashSubmissions.length === 0) ? (
               <div className="p-12 text-center text-slate-400">
                 {activeTab === 'submissions' 
                   ? 'No submissions found for this exam.' 
-                  : 'No students are currently enrolled in this exam.'}
+                  : activeTab === 'students'
+                  ? 'No students are currently enrolled in this exam.'
+                  : 'The Trash Box is empty.'}
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </main>

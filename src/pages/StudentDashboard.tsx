@@ -22,6 +22,8 @@ interface Submission {
   is_manual: boolean;
   submitted_at: string;
   exams: { title: string; id: string };
+  marked_by_email?: string;
+  marked_by_name?: string;
 }
 
 const StudentDashboard: React.FC = () => {
@@ -129,6 +131,8 @@ const StudentDashboard: React.FC = () => {
         graded,
         is_manual,
         submitted_at,
+        marked_by_email,
+        marked_by_name,
         exams(title, id)
       `)
       .eq('student_id', studentId)
@@ -352,6 +356,11 @@ const StudentDashboard: React.FC = () => {
                                   <span className="text-[10px] text-panel/40 font-bold uppercase tracking-tighter">In Progress</span>
                                 </div>
                               )}
+                              {sub.marked_by_name || sub.marked_by_email ? (
+                                <p className="text-[10px] text-panel/30 italic mt-1 font-medium">
+                                  By: {sub.marked_by_name || sub.marked_by_email}
+                                </p>
+                              ) : null}
                             </div>
                           </>
                         ) : (

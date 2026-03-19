@@ -20,6 +20,7 @@ const ExamRoom: React.FC = () => {
   const [student, setStudent] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentSubmissionId, setCurrentSubmissionId] = useState<string | null>(null);
 
   const [violationCount, setViolationCount] = useState(0);
   const [showViolationWarning, setShowViolationWarning] = useState(false);
@@ -183,18 +184,27 @@ const ExamRoom: React.FC = () => {
         return;
       }
 
-      // Enforce one-attempt rule: check for an existing submission
+      // Enforce one-attempt rule: check for an existing submission (either draft or final)
       const { data: existingSubmission } = await supabase
         .from('submissions')
-        .select('id')
+        .select('id, answers, status')
         .eq('student_id', studentData.id)
         .eq('exam_id', examId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
-      if (existingSubmission) {
+      if (existingSubmission && existingSubmission.status === 'submitted') {
         showToast('You have already submitted this examination. Each exam may only be attempted once.', 'error');
         navigate('/dashboard');
         return;
+      }
+
+      // If there's a draft, load the answers
+      if (existingSubmission && existingSubmission.status === 'draft') {
+        console.log('ExamRoom: Loading session from draft...');
+        setAnswers(existingSubmission.answers || {});
+        setCurrentSubmissionId(existingSubmission.id);
       }
 
       setExam(examData);
@@ -230,6 +240,63 @@ const ExamRoom: React.FC = () => {
     }
   };
 
+  // Auto-save logic
+  const saveDraft = useCallback(async (currentAnswers: Record<string, string>) => {
+    if (!student || !examId) return;
+    
+    console.log('ExamRoom: Saving draft...');
+    const submissionData = {
+      exam_id: examId,
+      student_id: student.id,
+      answers: currentAnswers,
+      status: 'draft' as const
+    };
+
+    const { data, error } = await supabase
+      .from('submissions')
+      .upsert(currentSubmissionId ? [{ ...submissionData, id: currentSubmissionId }] : [submissionData])
+      .select('id')
+      .single();
+      
+    if (error) {
+      console.error('Error auto-saving draft:', error);
+    } else if (data && !currentSubmissionId) {
+      setCurrentSubmissionId(data.id);
+    }
+  }, [student, examId, currentSubmissionId]);
+
+  // Trigger auto-save every 15 seconds if answers changed
+  const lastSavedAnswers = useRef<string>(JSON.stringify(answers));
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const current = JSON.stringify(answers);
+      if (current !== lastSavedAnswers.current) {
+        saveDraft(answers);
+        lastSavedAnswers.current = current;
+      }
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [answers, saveDraft]);
+
+  const calculateAutoScore = (currentAnswers: Record<string, string>) => {
+    let score = 0;
+    let hasStructured = false;
+    
+    questions.forEach(q => {
+      if (q.type === 'mcq') {
+        const studentAns = currentAnswers[q.id];
+        const correctAns = q.correct_answer;
+        if (studentAns && correctAns && studentAns.trim().toUpperCase() === correctAns.trim().toUpperCase()) {
+          score += q.marks;
+        }
+      } else {
+        hasStructured = true;
+      }
+    });
+    
+    return { score, hasStructured };
+  };
+
   const submitWithZeroScore = async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -239,18 +306,23 @@ const ExamRoom: React.FC = () => {
     try {
       const totalMarks = questions.reduce((acc, q) => acc + q.marks, 0);
 
+      const submissionData = {
+        exam_id: examId,
+        student_id: student.id,
+        answers: answers,
+        total_marks: totalMarks,
+        score: 0,
+        graded: true,
+        is_manual: false,
+        status: 'submitted' as const,
+        marking_details: { 
+          violation: { awarded_marks: 0, feedback: "Automatic zero due to maximum tab/blur violations." } 
+        }
+      };
+
       const { error: subError } = await supabase
         .from('submissions')
-        .insert([{
-          exam_id: examId,
-          student_id: student.id,
-          answers: answers,
-          total_marks: totalMarks,
-          score: 0,
-          graded: true,
-          is_manual: false,
-          marking_details: { violation: { awarded_marks: 0, feedback: "Automatic zero due to maximum tab/blur violations." } }
-        }]);
+        .upsert(currentSubmissionId ? [{ ...submissionData, id: currentSubmissionId }] : [submissionData]);
 
       if (subError) throw subError;
       localStorage.removeItem(`exam_start_${examId}`);
@@ -267,26 +339,28 @@ const ExamRoom: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // Calculate total marks
       const totalMarks = questions.reduce((acc, q) => acc + q.marks, 0);
+      const { score: autoScore, hasStructured } = calculateAutoScore(answers);
 
-      const { data: submission, error: subError } = await supabase
+      const submissionData = {
+        exam_id: examId,
+        student_id: student.id,
+        answers: answers,
+        total_marks: totalMarks,
+        score: autoScore,
+        graded: !hasStructured, // Only fully graded if no essay questions
+        is_manual: false,
+        status: 'submitted' as const,
+        marking_details: hasStructured 
+          ? { note: "Structured questions require manual marking." } 
+          : { note: "Automatically graded (MCQ/TF)." }
+      };
+
+      const { error: subError } = await supabase
         .from('submissions')
-        .insert([{
-          exam_id: examId,
-          student_id: student.id,
-          answers: answers,
-          total_marks: totalMarks
-        }])
-        .select()
-        .single();
+        .upsert(currentSubmissionId ? [{ ...submissionData, id: currentSubmissionId }] : [submissionData]);
 
       if (subError) throw subError;
-
-      // Trigger grading edge function for normal submission
-      await supabase.functions.invoke('grade-submission', {
-        body: { submissionId: submission.id }
-      });
 
       // Navigate to dashboard
       localStorage.removeItem(`exam_start_${examId}`);
@@ -299,16 +373,16 @@ const ExamRoom: React.FC = () => {
     }
   };
 
-  const handleCopyLast3Questions = async () => {
-    const last3 = questions.slice(-3);
-    if (last3.length === 0) {
-      showToast('No questions to copy.', 'error');
+  const handleCopyAllowedQuestions = async () => {
+    const copyable = questions.filter(q => (q as any).can_copy);
+    if (copyable.length === 0) {
+      showToast('No questions are available for copying.', 'error');
       return;
     }
 
-    const text = last3.map((q, i) => {
-      const num = questions.length - last3.length + i + 1;
-      let out = `Question ${num} [${q.marks} Mark${q.marks !== 1 ? 's' : ''}]\n${q.question_text}`;
+    const text = copyable.map((q) => {
+      const qIdx = questions.findIndex(orig => orig.id === q.id) + 1;
+      let out = `Question ${qIdx} [${q.marks} Mark${q.marks !== 1 ? 's' : ''}]\n${q.question_text}`;
       if (q.type === 'mcq' && q.options && q.options.length > 0) {
         out += '\n' + q.options.map((opt, idx) => `  ${String.fromCharCode(65 + idx)}. ${opt}`).join('\n');
       }
@@ -317,7 +391,7 @@ const ExamRoom: React.FC = () => {
 
     try {
       await navigator.clipboard.writeText(text);
-      showToast('Last 3 questions copied to clipboard!', 'success');
+      showToast(`${copyable.length} question(s) copied to clipboard!`, 'success');
     } catch {
       showToast('Failed to copy. Please copy the questions manually.', 'error');
     }
@@ -380,15 +454,15 @@ const ExamRoom: React.FC = () => {
         ))}
 
         <div className="flex flex-col items-center gap-4 mt-12">
-          {/* Copy last 3 questions — for IDE-based questions */}
-          {questions.length > 0 && (
+          {/* Copy allowed questions — for IDE-based questions */}
+          {questions.some(q => (q as any).can_copy) && (
             <button
-              onClick={handleCopyLast3Questions}
+              onClick={handleCopyAllowedQuestions}
               className="group flex items-center gap-2 bg-white/5 text-panel/60 border border-white/10 px-6 py-3 rounded-xl font-bold text-sm hover:bg-white/10 hover:text-white hover:border-white/20 transition-all"
-              title="Copy the last 3 questions to your clipboard so you can paste them into your IDE"
+              title="Copy the designated questions to your clipboard"
             >
               <ClipboardCopy className="w-4 h-4" />
-              Copy Last 3 Questions
+              Copy Copyable Questions
             </button>
           )}
 

@@ -27,6 +27,8 @@ interface Submission {
   graded: boolean;
   students: { student_number: string };
   exams: { title: string };
+  marked_by_email?: string;
+  marked_by_name?: string;
 }
 
 const SubmissionReview: React.FC = () => {
@@ -118,13 +120,17 @@ const SubmissionReview: React.FC = () => {
         newTotalScore += clamped;
       });
 
+      const { data: { user } } = await supabase.auth.getUser();
+      
       const { error } = await supabase
         .from('submissions')
         .update({
           marking_details: updatedDetails,
           score: newTotalScore,
           is_manual: true,
-          graded: true
+          graded: true,
+          marked_by_email: user?.email,
+          marked_by_name: (await supabase.from('lecturer_profiles').select('full_name').eq('id', user?.id).single()).data?.full_name
         })
         .eq('id', submission.id);
 
@@ -137,6 +143,8 @@ const SubmissionReview: React.FC = () => {
         score: newTotalScore,
         is_manual: true,
         graded: true,
+        marked_by_email: user?.email || undefined,
+        marked_by_name: (await supabase.from('lecturer_profiles').select('full_name').eq('id', user?.id).single()).data?.full_name
       });
       // Re-sync overrides so the inputs stay in sync
       const fresh: Record<string, number> = {};
@@ -224,9 +232,14 @@ const SubmissionReview: React.FC = () => {
             ) : (
               <span className="inline-flex items-center gap-2 text-green-600 font-bold mt-1">
                 <CheckCircle2 className="w-5 h-5" />
-                AI Marked
+                Auto-Graded
               </span>
             )}
+            {submission.marked_by_name || submission.marked_by_email ? (
+              <p className="text-[10px] text-slate-400 mt-1 font-bold italic">
+                By: {submission.marked_by_name || submission.marked_by_email}
+              </p>
+            ) : null}
           </div>
         </div>
 
