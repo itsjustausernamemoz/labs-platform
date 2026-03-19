@@ -7,7 +7,7 @@ import TabGuard from '../components/TabGuard';
 import QuestionRenderer from '../components/QuestionRenderer';
 import type { Question } from '../components/QuestionRenderer';
 import Timer from '../components/Timer';
-import { Send, Shield, AlertTriangle, Loader2, MousePointer, ClipboardCopy } from 'lucide-react';
+import { Send, Shield, AlertTriangle, Loader2, MousePointer, ClipboardCopy, Save } from 'lucide-react';
 import { useNotification } from '../components/NotificationProvider';
 
 const ExamRoom: React.FC = () => {
@@ -21,6 +21,11 @@ const ExamRoom: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentSubmissionId, setCurrentSubmissionId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [isJittering, setIsJittering] = useState(false);
+  const [jitterMessage, setJitterMessage] = useState('Finalizing Submission.');
+  const retryCount = useRef(0);
+  const maxRetries = 3;
 
   const [violationCount, setViolationCount] = useState(0);
   const [showViolationWarning, setShowViolationWarning] = useState(false);
@@ -95,6 +100,13 @@ const ExamRoom: React.FC = () => {
       navigate('/');
       return;
     }
+    // Restore answers from localStorage as a fail-safe backup
+    const backupAnswers = localStorage.getItem(`exam_answers_backup_${examId}`);
+    if (backupAnswers && Object.keys(answers).length === 0) {
+      console.log('ExamRoom: Restored answers from local backup.');
+      setAnswers(JSON.parse(backupAnswers));
+    }
+
     setStudent(JSON.parse(storedStudent));
     fetchExamData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -240,43 +252,77 @@ const ExamRoom: React.FC = () => {
     }
   };
 
-  // Auto-save logic
+  // Optimized saveDraft logic
   const saveDraft = useCallback(async (currentAnswers: Record<string, string>) => {
-    if (!student || !examId) return;
+    if (!student || !examId || isSubmitting) return;
     
-    console.log('ExamRoom: Saving draft...');
+    setSaveStatus('saving');
+    console.log('ExamRoom: Saving draft (optimized)...');
+    
     const submissionData = {
       exam_id: examId,
       student_id: student.id,
       answers: currentAnswers,
-      status: 'draft' as const
+      status: 'draft' as const,
+      updated_at: new Date().toISOString()
     };
 
-    const { data, error } = await supabase
-      .from('submissions')
-      .upsert(currentSubmissionId ? [{ ...submissionData, id: currentSubmissionId }] : [submissionData])
-      .select('id')
-      .single();
-      
-    if (error) {
-      console.error('Error auto-saving draft:', error);
-    } else if (data && !currentSubmissionId) {
-      setCurrentSubmissionId(data.id);
-    }
-  }, [student, examId, currentSubmissionId]);
-
-  // Trigger auto-save every 15 seconds if answers changed
-  const lastSavedAnswers = useRef<string>(JSON.stringify(answers));
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const current = JSON.stringify(answers);
-      if (current !== lastSavedAnswers.current) {
-        saveDraft(answers);
-        lastSavedAnswers.current = current;
+    try {
+      let result;
+      if (currentSubmissionId) {
+        // Direct update is more efficient than upsert under load
+        result = await supabase
+          .from('submissions')
+          .update(submissionData)
+          .eq('id', currentSubmissionId)
+          .select('id')
+          .single();
+      } else {
+        // First time insert
+        result = await supabase
+          .from('submissions')
+          .insert([submissionData])
+          .select('id')
+          .single();
       }
-    }, 15000);
-    return () => clearInterval(timer);
-  }, [answers, saveDraft]);
+        
+      if (result.error) throw result.error;
+      
+      if (result.data && !currentSubmissionId) {
+        setCurrentSubmissionId(result.data.id);
+      }
+      setSaveStatus('saved');
+      retryCount.current = 0; // Reset retries on success
+      // Reset to idle after 2 seconds
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (err: any) {
+      console.error('Error auto-saving draft:', err);
+      
+      // Exponential backoff retry
+      if (retryCount.current < maxRetries) {
+        retryCount.current++;
+        const backoffMs = Math.pow(2, retryCount.current) * 1000;
+        console.warn(`ExamRoom: Save failed. Retrying in ${backoffMs}ms... (Attempt ${retryCount.current})`);
+        setTimeout(() => saveDraft(currentAnswers), backoffMs);
+      } else {
+        setSaveStatus('error');
+      }
+    }
+  }, [student, examId, currentSubmissionId, isSubmitting]);
+
+  // Debounced Auto-save (triggers after 5 seconds of inactivity)
+  useEffect(() => {
+    if (Object.keys(answers).length === 0) return;
+    
+    // Immediate local backup for "at all costs" reliability
+    localStorage.setItem(`exam_answers_backup_${examId}`, JSON.stringify(answers));
+
+    const handler = setTimeout(() => {
+      saveDraft(answers);
+    }, 5000);
+
+    return () => clearTimeout(handler);
+  }, [answers, saveDraft, examId]);
 
   const calculateAutoScore = (currentAnswers: Record<string, string>) => {
     let score = 0;
@@ -298,10 +344,20 @@ const ExamRoom: React.FC = () => {
   };
 
   const submitWithZeroScore = async () => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
+    if (isSubmitting || isJittering) return;
     
-    showToast('Maximum violations reached. Your exam has been automatically submitted with a score of 0.', 'error');
+    setJitterMessage('Violations Detected. Finalizing Kick-out Submission.');
+    setIsJittering(true);
+
+    // Apply 0-20s jitter to avoid database overload during mass kick-outs
+    const jitterMs = Math.floor(Math.random() * 20000);
+    console.log(`ExamRoom: Violation kick-out triggered. Jittering for ${jitterMs}ms...`);
+
+    setTimeout(async () => {
+      setIsJittering(false);
+      setIsSubmitting(true);
+      
+      showToast('Maximum violations reached. Your exam has been automatically submitted with a score of 0.', 'error');
 
     try {
       const totalMarks = questions.reduce((acc, q) => acc + q.marks, 0);
@@ -331,7 +387,9 @@ const ExamRoom: React.FC = () => {
       console.error('Error submitting exam with zero score:', err);
     } finally {
       setIsSubmitting(false);
+      localStorage.removeItem(`exam_answers_backup_${examId}`);
     }
+    }, jitterMs);
   };
 
   const handleSubmit = async () => {
@@ -364,6 +422,7 @@ const ExamRoom: React.FC = () => {
 
       // Navigate to dashboard
       localStorage.removeItem(`exam_start_${examId}`);
+      localStorage.removeItem(`exam_answers_backup_${examId}`);
       navigate(`/dashboard`);
     } catch (err) {
       console.error('Error submitting exam:', err);
@@ -406,6 +465,21 @@ const ExamRoom: React.FC = () => {
     });
   };
 
+  const handleAutoSubmitWithJitter = () => {
+    if (isSubmitting || isJittering) return;
+    
+    setIsJittering(true);
+    setJitterMessage('Time Ended. Finalizing Submission.');
+    // Add jitter between 0 and 20 seconds to spread load
+    const jitterMs = Math.floor(Math.random() * 20000);
+    console.log(`ExamRoom: Auto-submit triggered. Jittering for ${jitterMs}ms...`);
+    
+    setTimeout(() => {
+      setIsJittering(false);
+      handleSubmit();
+    }, jitterMs);
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-primary flex items-center justify-center">
@@ -428,9 +502,21 @@ const ExamRoom: React.FC = () => {
               <p className="text-xs text-panel/40 mt-1 uppercase tracking-tighter">Secure Session ID: {examId?.slice(0, 8)}</p>
             </div>
           </div>
-          {examEndTime && <Timer endTime={examEndTime} onExpiry={handleSubmit} />}
+          {examEndTime && <Timer endTime={examEndTime} onExpiry={handleAutoSubmitWithJitter} />}
         </div>
       </header>
+
+      {/* Jitter Overlay */}
+      {isJittering && (
+        <div className="fixed inset-0 z-[60] bg-primary/95 flex flex-col items-center justify-center p-6 text-center animate-fade-in backdrop-blur-xl">
+          <Loader2 className="w-16 h-16 text-accent animate-spin mb-8" />
+          <h2 className="text-3xl font-bold mb-3 tracking-tight">{jitterMessage}</h2>
+          <p className="text-panel/60 max-w-md text-lg leading-relaxed">
+            The exam session is being securely finalized. We are currently syncing your latest progress to the database. 
+            <span className="block mt-4 text-accent font-bold animate-pulse">Please do not close this window.</span>
+          </p>
+        </div>
+      )}
 
       {/* Main Content */}
       <main ref={examContainerRef} className="max-w-4xl mx-auto pt-24 pb-32 px-6">
@@ -490,10 +576,38 @@ const ExamRoom: React.FC = () => {
       <footer className="fixed bottom-0 left-0 right-0 p-4 bg-primary/80 backdrop-blur-md border-t border-white/5">
         <div className="max-w-4xl mx-auto flex justify-between items-center text-[10px] text-panel/30 uppercase tracking-[0.2em]">
           <span>Student: {student?.student_number}</span>
-          <span className="flex items-center gap-1">
-            <MousePointer className="w-3 h-3" />
-            Cursor &amp; Tab Monitoring Active
-          </span>
+          <div className="flex items-center gap-6">
+            <button
+              onClick={() => saveDraft(answers)}
+              disabled={saveStatus === 'saving' || isSubmitting}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest transition-all ${
+                saveStatus === 'saving' ? 'bg-white/5 text-panel/40 cursor-wait' :
+                saveStatus === 'saved' ? 'bg-green-500/10 text-green-400' :
+                saveStatus === 'error' ? 'bg-red-500/10 text-red-500 animate-pulse' :
+                'bg-white/10 text-white hover:bg-white/20'
+              }`}
+            >
+              {saveStatus === 'saving' ? (
+                <>
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  Syncing...
+                </>
+              ) : saveStatus === 'saved' ? (
+                'Synced ✓'
+              ) : saveStatus === 'error' ? (
+                'Retry Save ⚠'
+              ) : (
+                <>
+                  <Save className="w-2.5 h-2.5" />
+                  Manual Sync
+                </>
+              )}
+            </button>
+            <span className="flex items-center gap-1">
+              <MousePointer className="w-3 h-3 text-accent" />
+              Monitoring Active
+            </span>
+          </div>
           <span>Violations: {violationCount}/{maxViolations}</span>
         </div>
       </footer>
