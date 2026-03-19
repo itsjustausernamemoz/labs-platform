@@ -4,7 +4,9 @@ import { supabase } from '../lib/supabase';
 import { useNotification } from '../components/NotificationProvider';
 import {
   ArrowLeft, CheckCircle2, ShieldAlert,
-  Save, Loader2, Info, AlertCircle, ShieldCheck
+  Save, Loader2, Info, ShieldCheck,
+  Trash2, RotateCcw, User, BookOpen, Award, Clock,
+  ChevronDown, ChevronUp, Zap
 } from 'lucide-react';
 
 interface Question {
@@ -13,6 +15,7 @@ interface Question {
   type: 'mcq' | 'structured';
   correct_answer: string;
   marks: number;
+  order_index: number;
 }
 
 interface Submission {
@@ -25,6 +28,8 @@ interface Submission {
   total_marks: number;
   is_manual: boolean;
   graded: boolean;
+  status?: string;
+  submitted_at?: string;
   students: { student_number: string };
   exams: { title: string };
   marked_by_email?: string;
@@ -34,13 +39,15 @@ interface Submission {
 const SubmissionReview: React.FC = () => {
   const { submissionId } = useParams();
   const navigate = useNavigate();
-  const { showToast } = useNotification();
+  const { showToast, showConfirm } = useNotification();
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [violationCount, setViolationCount] = useState(0);
+  const [collapsedQuestions, setCollapsedQuestions] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchSubmissionData();
@@ -52,11 +59,7 @@ const SubmissionReview: React.FC = () => {
     try {
       const { data: sub, error: subError } = await supabase
         .from('submissions')
-        .select(`
-          *,
-          students(student_number),
-          exams(title)
-        `)
+        .select(`*, students(student_number), exams(title)`)
         .eq('id', submissionId)
         .single();
 
@@ -72,7 +75,6 @@ const SubmissionReview: React.FC = () => {
       if (qsError) throw qsError;
       setQuestions(qs || []);
 
-      // Fetch violation count for this student on this exam
       const { count: vCount } = await supabase
         .from('violations')
         .select('*', { count: 'exact', head: true })
@@ -80,7 +82,6 @@ const SubmissionReview: React.FC = () => {
         .eq('student_id', sub.student_id);
       setViolationCount(vCount || 0);
 
-      // Initialize overrides with current marks
       const initialOverrides: Record<string, number> = {};
       Object.entries(sub.marking_details || {}).forEach(([id, detail]: [string, any]) => {
         initialOverrides[id] = detail.awarded_marks;
@@ -99,12 +100,25 @@ const SubmissionReview: React.FC = () => {
     setOverrides({ ...overrides, [questionId]: val });
   };
 
+  const handleFullMark = (questionId: string, maxMarks: number) => {
+    setOverrides({ ...overrides, [questionId]: maxMarks });
+  };
+
+  const handleZeroMark = (questionId: string) => {
+    setOverrides({ ...overrides, [questionId]: 0 });
+  };
+
+  const getLiveScore = () => {
+    return questions.reduce((total, q) => {
+      const val = overrides[q.id] ?? submission?.marking_details?.[q.id]?.awarded_marks ?? 0;
+      return total + Math.max(0, Math.min(q.marks, val));
+    }, 0);
+  };
+
   const handleSave = async () => {
     if (!submission) return;
     setIsSaving(true);
-
     try {
-      // Build updated marking details ensuring every question has an entry
       const updatedDetails: Record<string, { awarded_marks: number; feedback: string }> = {};
       let newTotalScore = 0;
 
@@ -112,16 +126,13 @@ const SubmissionReview: React.FC = () => {
         const overrideMarks = overrides[q.id] ?? submission.marking_details?.[q.id]?.awarded_marks ?? 0;
         const existingFeedback = submission.marking_details?.[q.id]?.feedback ?? 'Manually marked by lecturer.';
         const clamped = Math.max(0, Math.min(q.marks, overrideMarks));
-
-        updatedDetails[q.id] = {
-          awarded_marks: clamped,
-          feedback: existingFeedback,
-        };
+        updatedDetails[q.id] = { awarded_marks: clamped, feedback: existingFeedback };
         newTotalScore += clamped;
       });
 
       const { data: { user } } = await supabase.auth.getUser();
-      
+      const profileRes = await supabase.from('lecturer_profiles').select('full_name').eq('id', user?.id).single();
+
       const { error } = await supabase
         .from('submissions')
         .update({
@@ -130,13 +141,12 @@ const SubmissionReview: React.FC = () => {
           is_manual: true,
           graded: true,
           marked_by_email: user?.email,
-          marked_by_name: (await supabase.from('lecturer_profiles').select('full_name').eq('id', user?.id).single()).data?.full_name
+          marked_by_name: profileRes.data?.full_name
         })
         .eq('id', submission.id);
 
       if (error) throw error;
 
-      // Sync local state so both panels reflect the new marks immediately
       setSubmission({
         ...submission,
         marking_details: updatedDetails,
@@ -144,14 +154,14 @@ const SubmissionReview: React.FC = () => {
         is_manual: true,
         graded: true,
         marked_by_email: user?.email || undefined,
-        marked_by_name: (await supabase.from('lecturer_profiles').select('full_name').eq('id', user?.id).single()).data?.full_name
+        marked_by_name: profileRes.data?.full_name
       });
-      // Re-sync overrides so the inputs stay in sync
+
       const fresh: Record<string, number> = {};
       questions.forEach((q) => { fresh[q.id] = updatedDetails[q.id].awarded_marks; });
       setOverrides(fresh);
 
-      showToast('Marks saved successfully. The student can now see their updated script.', 'success');
+      showToast('Marks saved. The student can now see their updated script.', 'success');
     } catch (err) {
       console.error('Error saving overrides:', err);
       showToast('Failed to save changes', 'error');
@@ -160,198 +170,432 @@ const SubmissionReview: React.FC = () => {
     }
   };
 
+  const handleDeleteSubmission = () => {
+    if (!submission) return;
+    showConfirm({
+      title: 'Delete Submission',
+      message: `Are you sure you want to delete ${submission.students.student_number}'s submission? This will move it to the Trash Box. The student can be allowed to re-sit from the Results page.`,
+      confirmText: 'Delete',
+      onConfirm: async () => {
+        setIsDeleting(true);
+        try {
+          const { error, count } = await supabase
+            .from('submissions')
+            .delete({ count: 'exact' })
+            .eq('id', submission.id);
+
+          if (error) throw error;
+          if (count === 0) {
+            showToast('Submission not found or permission denied.', 'error');
+            return;
+          }
+
+          // Guaranteed clean slate: Clear all security violations for this student automatically
+          await supabase
+            .from('violations')
+            .delete()
+            .eq('exam_id', submission.exam_id)
+            .eq('student_id', submission.student_id);
+
+          showToast('Submission deleted. Student can start completely afresh.', 'success');
+          navigate(-1);
+        } catch (err: any) {
+          showToast(`Failed to delete: ${err.message}`, 'error');
+        } finally {
+          setIsDeleting(false);
+        }
+      }
+    });
+  };
+
+  const toggleCollapse = (id: string) => {
+    setCollapsedQuestions(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center">
-        <Loader2 className="w-10 h-10 text-primary animate-spin" />
+      <div className="min-h-screen bg-[#0D1117] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-10 h-10 text-[#00E5FF] animate-spin" />
+          <p className="text-white/40 text-sm font-mono uppercase tracking-widest">Loading Submission…</p>
+        </div>
       </div>
     );
   }
 
-  if (!submission) return <div>Submission not found</div>;
+  if (!submission) return <div className="min-h-screen bg-[#0D1117] flex items-center justify-center text-white">Submission not found</div>;
+
+  const liveScore = getLiveScore();
+  const percentage = submission.total_marks > 0 ? (liveScore / submission.total_marks) * 100 : 0;
+  const isPassed = percentage >= 50;
+  const isViolation = !!submission.marking_details?.violation;
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans pb-20">
-      <nav className="bg-primary text-white p-4 sticky top-0 z-50 shadow-md">
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
+    <div className="min-h-screen bg-[#0D1117] text-white font-sans">
+      {/* ── Top Nav ── */}
+      <header className="sticky top-0 z-50 bg-[#0D1117]/90 backdrop-blur-xl border-b border-white/[0.06]">
+        <div className="max-w-5xl mx-auto flex items-center justify-between px-6 py-4">
           <button
             onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-panel/60 hover:text-white transition-colors"
+            className="flex items-center gap-2 text-white/40 hover:text-white transition-colors group"
           >
-            <ArrowLeft className="w-5 h-5" />
-            Back
+            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+            <span className="text-sm font-medium">Back</span>
           </button>
-          <div className="text-center">
-            <h1 className="text-lg font-bold">Review: {submission.students.student_number}</h1>
-            <p className="text-xs text-accent/60 uppercase tracking-widest">{submission.exams.title}</p>
-          </div>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="flex items-center gap-2 bg-accent text-primary px-4 py-2 rounded-lg font-bold text-sm hover:bg-accent/90 transition-all disabled:opacity-50"
-          >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            Save Changes
-          </button>
-        </div>
-      </nav>
 
-      <main className="max-w-5xl mx-auto p-8">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm mb-8 grid grid-cols-1 sm:grid-cols-3 gap-6 items-center">
-          <div>
-            <p className="text-sm text-slate-500 font-medium">Final Score</p>
-            <div className="flex items-baseline gap-2 mt-1">
-              <span className="text-4xl font-bold text-primary">{submission.score.toFixed(1)}</span>
-              <span className="text-slate-400 font-medium text-xl">/ {submission.total_marks}</span>
+          <div className="text-center">
+            <p className="text-xs text-white/30 uppercase tracking-[0.2em] font-bold">{submission.exams.title}</p>
+            <h1 className="font-bold text-base leading-tight flex items-center justify-center gap-2 mt-0.5">
+              <User className="w-3.5 h-3.5 text-[#00E5FF]" />
+              {submission.students.student_number}
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDeleteSubmission}
+              disabled={isDeleting}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-bold text-red-400 border border-red-500/20 hover:bg-red-500/10 hover:border-red-500/40 transition-all disabled:opacity-40"
+            >
+              {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex items-center gap-2 bg-[#00E5FF] text-[#0D1117] px-4 py-2 rounded-lg font-bold text-sm hover:bg-[#00E5FF]/90 transition-all disabled:opacity-50 shadow-[0_0_16px_rgba(0,229,255,0.3)]"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save Marks
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-6 py-8">
+
+        {/* ── Score Hero Panel ── */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          {/* Live score */}
+          <div className="md:col-span-1 relative overflow-hidden bg-gradient-to-br from-[#00E5FF]/10 to-[#00E5FF]/5 border border-[#00E5FF]/20 rounded-2xl p-6">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-[#00E5FF]/5 rounded-full -translate-y-8 translate-x-8" />
+            <p className="text-xs text-white/40 uppercase tracking-[0.2em] font-bold mb-1">Live Score</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-5xl font-black text-[#00E5FF] tabular-nums">{liveScore.toFixed(1)}</span>
+              <span className="text-white/30 text-xl font-medium">/ {submission.total_marks}</span>
             </div>
+            <div className="mt-3 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${isPassed ? 'bg-green-400' : 'bg-orange-400'}`}
+                style={{ width: `${Math.min(100, percentage)}%` }}
+              />
+            </div>
+            <p className={`text-sm font-bold mt-2 ${isPassed ? 'text-green-400' : 'text-orange-400'}`}>
+              {percentage.toFixed(1)}% — {isPassed ? 'Pass' : 'Fail'}
+            </p>
           </div>
 
           {/* Violations */}
-          <div className="flex flex-col items-center">
-            <p className="text-sm text-slate-500 font-medium mb-2">Security Violations</p>
-            <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm ${
-              violationCount === 0
-                ? 'bg-green-50 text-green-700'
-                : violationCount >= 3
-                ? 'bg-red-50 text-red-700'
-                : 'bg-orange-50 text-orange-700'
-            }`}>
-              <ShieldAlert className="w-4 h-4" />
-              {violationCount} Violation{violationCount !== 1 ? 's' : ''} Detected
-            </span>
+          <div className={`bg-white/[0.03] border rounded-2xl p-6 flex flex-col justify-between ${
+            violationCount === 0 ? 'border-white/[0.06]' : violationCount >= 3 ? 'border-red-500/30 bg-red-500/[0.04]' : 'border-orange-500/30 bg-orange-500/[0.04]'
+          }`}>
+            <p className="text-xs text-white/40 uppercase tracking-[0.2em] font-bold mb-3">Security</p>
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                violationCount === 0 ? 'bg-green-500/10 text-green-400' :
+                violationCount >= 3 ? 'bg-red-500/10 text-red-400' : 'bg-orange-500/10 text-orange-400'
+              }`}>
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <p className={`text-2xl font-black ${
+                  violationCount === 0 ? 'text-green-400' : violationCount >= 3 ? 'text-red-400' : 'text-orange-400'
+                }`}>{violationCount}</p>
+                <p className="text-xs text-white/30 font-medium">Violation{violationCount !== 1 ? 's' : ''}</p>
+              </div>
+            </div>
           </div>
 
-          <div className="text-right">
-            <p className="text-sm text-slate-500 font-medium">Marking Status</p>
-            {submission.is_manual ? (
-              <span className="inline-flex items-center gap-2 text-accent font-bold mt-1">
-                <ShieldCheck className="w-5 h-5" />
-                Lecturer Marked
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-2 text-green-600 font-bold mt-1">
-                <CheckCircle2 className="w-5 h-5" />
-                Auto-Graded
-              </span>
-            )}
-            {submission.marked_by_name || submission.marked_by_email ? (
-              <p className="text-[10px] text-slate-400 mt-1 font-bold italic">
-                By: {submission.marked_by_name || submission.marked_by_email}
-              </p>
-            ) : null}
+          {/* Status */}
+          <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6 flex flex-col justify-between">
+            <p className="text-xs text-white/40 uppercase tracking-[0.2em] font-bold mb-3">Marking Status</p>
+            <div>
+              {submission.is_manual ? (
+                <span className="inline-flex items-center gap-2 text-[#00E5FF] font-bold">
+                  <ShieldCheck className="w-5 h-5" />
+                  Lecturer Marked
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 text-green-400 font-bold">
+                  <CheckCircle2 className="w-5 h-5" />
+                  Auto-Graded
+                </span>
+              )}
+              {(submission.marked_by_name || submission.marked_by_email) && (
+                <p className="text-[10px] text-white/30 mt-2 font-medium italic">
+                  By: {submission.marked_by_name || submission.marked_by_email}
+                </p>
+              )}
+              {submission.submitted_at && (
+                <p className="text-[10px] text-white/20 mt-1 flex items-center gap-1">
+                  <Clock className="w-2.5 h-2.5" />
+                  {new Date(submission.submitted_at).toLocaleString()}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Violation Warning Banner */}
-        {submission.marking_details?.violation && (
-          <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 mb-8 flex items-start gap-4">
-            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center text-red-600 shrink-0">
-              <ShieldAlert className="w-6 h-6" />
+        {/* ── Violation Banner ── */}
+        {isViolation && (
+          <div className="mb-8 bg-red-500/10 border border-red-500/30 rounded-2xl p-5 flex items-start gap-4">
+            <div className="w-10 h-10 bg-red-500/20 rounded-xl flex items-center justify-center text-red-400 shrink-0">
+              <ShieldAlert className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-red-800">Autosubmitted due to Security Violations</h3>
-              <p className="text-red-700 font-medium mt-1">
-                {submission.marking_details.violation.feedback || "This exam was automatically submitted because the student exceeded the allowed number of security violations."}
+              <h3 className="font-bold text-red-300 mb-1">Auto-submitted due to Security Violations</h3>
+              <p className="text-sm text-red-400/80 leading-relaxed">
+                {submission.marking_details.violation?.feedback || 'Exam was automatically submitted after exceeding the allowed violations.'}
               </p>
-              <p className="text-sm text-red-600/80 mt-2">
-                As a lecturer, you can manually mark the questions below to override this automatic zero score if necessary.
-              </p>
+              <p className="text-xs text-red-400/50 mt-2">You can manually adjust marks below to override the automatic zero.</p>
             </div>
           </div>
         )}
 
-        <div className="space-y-8">
+        {/* ── Question Cards ── */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xs text-white/30 uppercase tracking-[0.2em] font-bold flex items-center gap-2">
+              <BookOpen className="w-3.5 h-3.5" />
+              Questions ({questions.length})
+            </h2>
+            <div className="text-xs text-white/20 font-mono">
+              {questions.filter(q => (overrides[q.id] ?? submission.marking_details?.[q.id]?.awarded_marks ?? 0) > 0).length} / {questions.length} marked
+            </div>
+          </div>
+
           {questions.map((q, index) => {
-            const detail = submission.marking_details[q.id] || { awarded_marks: 0, feedback: 'Not marked' };
-            const studentAnswer = submission.answers[q.id] || '(No Answer)';
-            
+            const detail = submission.marking_details?.[q.id] || { awarded_marks: 0, feedback: 'Not yet marked.' };
+            const studentAnswer = submission.answers?.[q.id] || '';
+            const awarded = overrides[q.id] ?? detail.awarded_marks;
+            const isModified = overrides[q.id] !== undefined && overrides[q.id] !== detail.awarded_marks;
+            const isCollapsed = collapsedQuestions.has(q.id);
+            const qPct = q.marks > 0 ? (awarded / q.marks) * 100 : 0;
+            const isMCQ = q.type === 'mcq';
+            const isCorrect = isMCQ && studentAnswer.trim().toUpperCase() === q.correct_answer?.trim().toUpperCase();
+
             return (
-              <div key={q.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-start">
-                  <div className="flex gap-4">
-                    <span className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center font-bold text-sm shrink-0">
-                      Q{index + 1}
+              <div
+                key={q.id}
+                className={`rounded-2xl border overflow-hidden transition-all duration-200 ${
+                  isModified ? 'border-[#00E5FF]/30 shadow-[0_0_20px_rgba(0,229,255,0.05)]' : 'border-white/[0.06]'
+                } bg-white/[0.02]`}
+              >
+                {/* Card Header */}
+                <div
+                  className="flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                  onClick={() => toggleCollapse(q.id)}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <span className={`w-8 h-8 rounded-lg font-black text-xs flex items-center justify-center shrink-0 ${
+                      qPct === 100 ? 'bg-green-500/20 text-green-400' :
+                      qPct >= 50 ? 'bg-[#00E5FF]/15 text-[#00E5FF]' :
+                      awarded > 0 ? 'bg-orange-500/20 text-orange-400' :
+                      'bg-white/5 text-white/30'
+                    }`}>
+                      {index + 1}
                     </span>
-                    <div>
-                      <h3 className="font-bold text-primary text-lg">{q.question_text}</h3>
-                      <p className="text-xs text-slate-400 uppercase tracking-widest mt-1 font-bold">
-                        {q.type} • {q.marks} Marks Max
-                      </p>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-white/90 text-sm leading-snug truncate">{q.question_text}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">{q.type}</span>
+                        {isMCQ && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isCorrect ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                            {isCorrect ? '✓ Correct' : '✗ Wrong'}
+                          </span>
+                        )}
+                        {isModified && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#00E5FF]/10 text-[#00E5FF]">
+                            Modified
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm">
-                      <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">Awarded:</span>
+
+                  {/* Marks input + collapse */}
+                  <div className="flex items-center gap-3 shrink-0 ml-4">
+                    {/* Quick mark buttons */}
+                    <div className="hidden md:flex items-center gap-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleZeroMark(q.id); }}
+                        className="w-7 h-7 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all text-xs font-bold flex items-center justify-center"
+                        title="Award 0"
+                      >0</button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleFullMark(q.id, q.marks); }}
+                        className="w-7 h-7 rounded-lg bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-all text-xs font-bold flex items-center justify-center"
+                        title="Award full marks"
+                      >
+                        <Zap className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-xl border text-sm font-bold ${
+                        isModified ? 'bg-[#00E5FF]/10 border-[#00E5FF]/30 text-[#00E5FF]' : 'bg-white/5 border-white/10 text-white'
+                      }`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <input
                         type="number"
-                        value={overrides[q.id] ?? detail.awarded_marks}
+                        value={awarded}
                         onChange={(e) => handleOverrideChange(q.id, parseFloat(e.target.value) || 0, q.marks)}
-                        className="w-16 font-bold text-primary text-right outline-none bg-transparent"
+                        className="w-10 bg-transparent outline-none text-right tabular-nums"
                         step="0.5"
+                        min="0"
+                        max={q.marks}
                       />
-                      <span className="text-slate-400 font-medium">/ {q.marks}</span>
+                      <span className="text-white/30 font-normal">/ {q.marks}</span>
                     </div>
+                    {isCollapsed ? <ChevronDown className="w-4 h-4 text-white/30" /> : <ChevronUp className="w-4 h-4 text-white/30" />}
                   </div>
                 </div>
 
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Student Answer</h4>
-                      {studentAnswer === '(No Answer)' ? (
-                        <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-slate-400 italic text-sm">
-                          No answer provided for this question.
-                        </div>
-                      ) : (
-                        <pre
-                          className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-slate-700 font-mono text-sm whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-64"
-                        >
-                          {studentAnswer}
+                {/* Score bar */}
+                <div className="h-0.5 bg-white/5 mx-6">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      qPct === 100 ? 'bg-green-400' : qPct >= 50 ? 'bg-[#00E5FF]' : qPct > 0 ? 'bg-orange-400' : 'bg-white/10'
+                    }`}
+                    style={{ width: `${Math.min(100, qPct)}%` }}
+                  />
+                </div>
+
+                {/* Expandable body */}
+                {!isCollapsed && (
+                  <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Left: answers */}
+                    <div className="space-y-4">
+                      <div>
+                        <h4 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.15em] mb-2 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white/20 inline-block" />
+                          Student Answer
+                        </h4>
+                        {studentAnswer ? (
+                          <pre className="p-4 bg-white/[0.03] border border-white/[0.06] rounded-xl font-mono text-sm text-white/70 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-52">
+                            {studentAnswer}
+                          </pre>
+                        ) : (
+                          <div className="p-4 bg-white/[0.02] border border-white/[0.04] rounded-xl text-white/20 italic text-sm">
+                            No answer provided.
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <h4 className="text-[10px] font-bold text-[#00E5FF]/40 uppercase tracking-[0.15em] mb-2 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#00E5FF]/30 inline-block" />
+                          {isMCQ ? 'Correct Answer' : 'Model Answer'}
+                        </h4>
+                        <pre className="p-4 bg-[#00E5FF]/[0.04] border border-[#00E5FF]/10 rounded-xl font-mono text-sm text-[#00E5FF]/80 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-52">
+                          {q.correct_answer || '(No model answer provided)'}
                         </pre>
+                      </div>
+                    </div>
+
+                    {/* Right: marking feedback + quick actions */}
+                    <div className="space-y-4">
+                      <div>
+                        <h4 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.15em] mb-2 flex items-center gap-1.5">
+                          <Info className="w-2.5 h-2.5" />
+                          Marking Feedback
+                        </h4>
+                        <div className={`p-4 rounded-xl border text-sm leading-relaxed ${
+                          isViolation ? 'bg-red-500/5 border-red-500/20 text-red-300/80'
+                          : qPct === 100 ? 'bg-green-500/5 border-green-500/20 text-green-300'
+                          : qPct >= 50 ? 'bg-[#00E5FF]/5 border-[#00E5FF]/15 text-[#00E5FF]/80'
+                          : 'bg-orange-500/5 border-orange-500/20 text-orange-300/80'
+                        }`}>
+                          {isViolation
+                            ? "Marking suppressed due to violation. Adjust 'Awarded' to mark manually."
+                            : detail.feedback}
+                        </div>
+                      </div>
+
+                      {/* Quick mark row */}
+                      <div>
+                        <h4 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.15em] mb-2">Quick Mark</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {[0, 0.5, 1].concat(
+                            q.marks > 1 ? Array.from({ length: Math.min(q.marks - 1, 5) }, (_, i) => Math.round((q.marks * (i + 1)) / 6 * 2) / 2) : []
+                          ).concat([q.marks]).filter((v, i, arr) => arr.indexOf(v) === i && v <= q.marks).sort((a, b) => a - b).map(val => (
+                            <button
+                              key={val}
+                              onClick={() => setOverrides({ ...overrides, [q.id]: val })}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                awarded === val
+                                  ? 'bg-[#00E5FF]/20 border-[#00E5FF]/40 text-[#00E5FF]'
+                                  : 'bg-white/[0.03] border-white/[0.06] text-white/40 hover:border-white/20 hover:text-white/70'
+                              }`}
+                            >
+                              {val}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {isModified && (
+                        <button
+                          onClick={() => {
+                            const fresh = { ...overrides };
+                            delete fresh[q.id];
+                            setOverrides(fresh);
+                          }}
+                          className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition-colors"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          Revert to original ({detail.awarded_marks})
+                        </button>
                       )}
                     </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Model / Correct Answer</h4>
-                      <pre
-                        className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 text-primary font-mono text-sm whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-64"
-                      >
-                        {q.correct_answer}
-                      </pre>
-                    </div>
                   </div>
-
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                      <Info className="w-3 h-3" />
-                      Marking Feedback
-                    </h4>
-                    <div className={`p-4 rounded-xl border ${
-                      submission.marking_details?.violation 
-                        ? 'bg-red-50/50 border-red-100 text-red-800' 
-                        : detail.awarded_marks === q.marks 
-                          ? 'bg-green-50 border-green-100 text-green-800' 
-                          : 'bg-orange-50 border-orange-100 text-orange-800'
-                    }`}>
-                      <p className="text-sm font-medium leading-relaxed">
-                        {submission.marking_details?.violation 
-                          ? "Individual marking suppressed due to violation. Adjust 'Awarded' to mark manually."
-                          : detail.feedback}
-                      </p>
-                    </div>
-                    {(detail.awarded_marks !== overrides[q.id] && overrides[q.id] !== undefined) && (
-                      <div className="flex items-center gap-2 text-xs font-bold text-accent bg-primary px-3 py-1.5 rounded-lg w-fit">
-                        <AlertCircle className="w-3 h-3" />
-                        Manually Adjusted
-                      </div>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
             );
           })}
         </div>
+
+        {/* ── Floating Save Summary ── */}
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50">
+          <div className="bg-[#0D1117]/90 backdrop-blur-xl border border-white/10 rounded-2xl px-6 py-3 flex items-center gap-6 shadow-2xl shadow-black/50">
+            <div className="flex items-center gap-2">
+              <Award className="w-4 h-4 text-[#00E5FF]" />
+              <span className="text-sm font-bold text-white">
+                {liveScore.toFixed(1)} / {submission.total_marks}
+              </span>
+              <span className={`text-sm font-bold ${isPassed ? 'text-green-400' : 'text-orange-400'}`}>
+                ({percentage.toFixed(0)}%)
+              </span>
+            </div>
+            <div className="w-px h-5 bg-white/10" />
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex items-center gap-2 bg-[#00E5FF] text-[#0D1117] px-5 py-2 rounded-xl font-bold text-sm hover:bg-[#00E5FF]/90 transition-all disabled:opacity-50 shadow-[0_0_16px_rgba(0,229,255,0.3)]"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Save All Marks
+            </button>
+          </div>
+        </div>
       </main>
+
+      {/* Bottom padding for floating bar */}
+      <div className="h-28" />
     </div>
   );
 };

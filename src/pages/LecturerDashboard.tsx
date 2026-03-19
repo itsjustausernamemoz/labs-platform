@@ -148,28 +148,38 @@ const LecturerDashboard: React.FC = () => {
     }
 
     try {
-      // Fetch exams where user is owner or collaborator
+      // Fetch exam list (no embedded submissions — we count separately)
       const { data: ownExams, error: ownError } = await supabase
         .from('exams')
-        .select(`
-          *,
-          submissions(id, graded)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (ownError) throw ownError;
 
-      // Process stats
-      const examsWithStats = (ownExams || []).map(exam => {
-        const subs = exam.submissions || [];
-        const submitted = subs.length;
-        const marked = subs.filter((s: any) => s.graded).length;
-        return {
-          ...exam,
-          total_submissions: submitted,
-          marked_submissions: marked
-        };
-      });
+      // For each exam, fetch total and graded submission counts in parallel.
+      // Using server-side COUNT avoids shipping 1000+ rows to the browser
+      // when a large exam is running.
+      const examsWithStats: ExamWithStats[] = await Promise.all(
+        (ownExams || []).map(async (exam) => {
+          const [totalResult, gradedResult] = await Promise.all([
+            supabase
+              .from('submissions')
+              .select('*', { count: 'exact', head: true })
+              .eq('exam_id', exam.id),
+            supabase
+              .from('submissions')
+              .select('*', { count: 'exact', head: true })
+              .eq('exam_id', exam.id)
+              .eq('graded', true),
+          ]);
+
+          return {
+            ...exam,
+            total_submissions: totalResult.count ?? 0,
+            marked_submissions: gradedResult.count ?? 0,
+          };
+        })
+      );
 
       setExams(examsWithStats);
     } catch (error) {
@@ -179,6 +189,7 @@ const LecturerDashboard: React.FC = () => {
       setIsLoading(false);
     }
   };
+
 
   const handleAddCoMarker = async (examId: string) => {
     if (!newCollabEmail) return;

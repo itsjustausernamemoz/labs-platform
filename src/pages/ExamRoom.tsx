@@ -7,8 +7,9 @@ import TabGuard from '../components/TabGuard';
 import QuestionRenderer from '../components/QuestionRenderer';
 import type { Question } from '../components/QuestionRenderer';
 import Timer from '../components/Timer';
-import { Send, Shield, AlertTriangle, Loader2, MousePointer, ClipboardCopy, Save } from 'lucide-react';
+import { Send, Shield, AlertTriangle, Loader2, MousePointer, ClipboardCopy, Save, FileDown } from 'lucide-react';
 import { useNotification } from '../components/NotificationProvider';
+import { jsPDF } from 'jspdf';
 
 const ExamRoom: React.FC = () => {
   const { examId } = useParams();
@@ -26,6 +27,10 @@ const ExamRoom: React.FC = () => {
   const [jitterMessage, setJitterMessage] = useState('Finalizing Submission.');
   const retryCount = useRef(0);
   const maxRetries = 3;
+
+  // Pending violations accumulated between DB flushes
+  const pendingViolations = useRef<Array<{ violation_type: string }>>([]);
+  const violationFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [violationCount, setViolationCount] = useState(0);
   const [showViolationWarning, setShowViolationWarning] = useState(false);
@@ -78,16 +83,31 @@ const ExamRoom: React.FC = () => {
     }
   }, [violationCount, maxViolations, isSubmitting]);
 
-  // Log violations to DB
+  // Log violations to DB — batched with a 2-second debounce window.
+  // This prevents a write spike when 1000 students simultaneously trigger
+  // a violation (e.g. an OS notification popup across all machines).
   useEffect(() => {
     if (violationCount > 0 && student && examId) {
-      supabase.from('violations').insert([{
-        student_id: student.id,
-        exam_id: examId,
-        violation_type: lastViolationType
-      }]).then(({ error }) => {
-        if (error) console.error('Error logging to DB:', error);
-      });
+      // Queue this violation for the next flush
+      pendingViolations.current.push({ violation_type: lastViolationType });
+
+      // Clear any existing flush timer and restart the 2-second window
+      if (violationFlushTimer.current) clearTimeout(violationFlushTimer.current);
+
+      violationFlushTimer.current = setTimeout(async () => {
+        const batch = pendingViolations.current.splice(0); // drain queue
+        if (batch.length === 0) return;
+
+        const rows = batch.map(v => ({
+          student_id: student.id,
+          exam_id: examId,
+          violation_type: v.violation_type,
+        }));
+
+        const { error } = await supabase.from('violations').insert(rows);
+        if (error) console.error('Error batch-logging violations to DB:', error);
+        else console.log(`ExamRoom: Flushed ${rows.length} violation(s) to DB.`);
+      }, 2000);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [violationCount, student, examId]);
@@ -174,6 +194,7 @@ const ExamRoom: React.FC = () => {
     const studentData = JSON.parse(storedStudent);
 
     try {
+      // 1. Fetch Exam Details
       const { data: examData, error: examError } = await supabase
         .from('exams')
         .select('*')
@@ -181,61 +202,63 @@ const ExamRoom: React.FC = () => {
         .single();
 
       if (examError) throw examError;
+      setExam(examData);
 
-      // Check if student is enrolled
+      // 2. Check Enrollment
       const { data: enrollment, error: enrollError } = await supabase
         .from('enrollments')
         .select('*')
         .eq('student_id', studentData.id)
         .eq('exam_id', examId)
-        .single();
+        .maybeSingle();
 
-      if (enrollError || !enrollment) {
+      if (enrollError) throw enrollError;
+      if (!enrollment) {
         showToast('You are not enrolled in this examination.', 'error');
         navigate('/dashboard');
         return;
       }
 
-      // Enforce one-attempt rule: check for an existing submission (either draft or final)
-      const { data: existingSubmission } = await supabase
+      // 3. Check for existing submission (Draft or Final)
+      // We use maybeSingle and order to handle potential historical duplicates safely
+      const { data: existingSub, error: subError } = await supabase
         .from('submissions')
-        .select('id, answers, status')
-        .eq('student_id', studentData.id)
+        .select('*')
         .eq('exam_id', examId)
+        .eq('student_id', studentData.id)
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (existingSubmission && existingSubmission.status === 'submitted') {
-        showToast('You have already submitted this examination. Each exam may only be attempted once.', 'error');
-        navigate('/dashboard');
-        return;
+      if (subError) {
+        console.error('Error fetching submission:', subError);
       }
 
-      // If there's a draft, load the answers
-      if (existingSubmission && existingSubmission.status === 'draft') {
-        console.log('ExamRoom: Loading session from draft...');
-        setAnswers(existingSubmission.answers || {});
-        setCurrentSubmissionId(existingSubmission.id);
+      if (existingSub) {
+        setCurrentSubmissionId(existingSub.id);
+        if (existingSub.status === 'draft') {
+          console.log('ExamRoom: Resumed from draft session.');
+          setAnswers(existingSub.answers || {});
+        } else {
+          showToast('You have already submitted this examination.', 'error');
+          navigate('/dashboard');
+          return;
+        }
       }
 
-      setExam(examData);
-
-      // Handle Timer Persistence
+      // 4. Handle Timer Persistence
       const startTimeKey = `exam_start_${examId}`;
       let startTime = localStorage.getItem(startTimeKey);
       
       if (!startTime) {
         startTime = Date.now().toString();
         localStorage.setItem(startTimeKey, startTime);
-        console.log('ExamRoom: Set new start time:', startTime);
-      } else {
-        console.log('ExamRoom: Resumed from start time:', startTime);
       }
 
       const durationMs = (examData.duration_minutes || 60) * 60 * 1000;
       setExamEndTime(parseInt(startTime) + durationMs);
 
+      // 5. Fetch Questions
       const { data: questionData, error: qError } = await supabase
         .from('questions')
         .select('*')
@@ -244,9 +267,46 @@ const ExamRoom: React.FC = () => {
 
       if (qError) throw qError;
       setQuestions(questionData || []);
+
+      // 6. Fetch Violation Count
+      const { count: dbViolationCount } = await supabase
+        .from('violations')
+        .select('*', { count: 'exact', head: true })
+        .eq('exam_id', examId)
+        .eq('student_id', studentData.id);
+      
+      if (dbViolationCount !== null) {
+        setViolationCount(dbViolationCount);
+      }
+
+      // 7. Subscribe to Realtime Violation Resets
+      // If the lecturer hits "Resume" on the dashboard, it deletes all violations
+      // for this student in the DB. We must listen for this to sync our local state,
+      // otherwise the student will get kicked out again on their very next tab switch.
+      const violationChannel = supabase
+        .channel('violation-resets')
+        .on(
+          'postgres_changes',
+          { event: 'DELETE', schema: 'public', table: 'violations', filter: `student_id=eq.${studentData.id}` },
+          () => {
+            console.log('ExamRoom: Violations cleared by lecturer. Resetting local count to 0.');
+            setViolationCount(0);
+            pendingViolations.current = [];
+            setShowViolationWarning(false);
+            showToast('Your session has been formally resumed by the lecturer. Security violations reset.', 'info');
+          }
+        )
+        .subscribe();
+
+      // Clean up the subscription when unmounting
+      return () => {
+        supabase.removeChannel(violationChannel);
+      };
+
     } catch (err) {
-      console.error('Error fetching exam:', err);
-      navigate('/');
+      console.error('Error fetching exam data:', err);
+      showToast('Error loading exam. Please try again.', 'error');
+      navigate('/dashboard');
     } finally {
       setIsLoading(false);
     }
@@ -268,28 +328,23 @@ const ExamRoom: React.FC = () => {
     };
 
     try {
-      let result;
-      if (currentSubmissionId) {
-        // Direct update is more efficient than upsert under load
-        result = await supabase
-          .from('submissions')
-          .update(submissionData)
-          .eq('id', currentSubmissionId)
-          .select('id')
-          .single();
-      } else {
-        // First time insert
-        result = await supabase
-          .from('submissions')
-          .insert([submissionData])
-          .select('id')
-          .single();
-      }
+      // Use upsert with onConflict to be "fail-proof" against duplicates
+      const { data: result, error: subError } = await supabase
+        .from('submissions')
+        .upsert({
+          ...submissionData,
+          id: currentSubmissionId || undefined // Use ID if we have it, otherwise let onConflict handle it
+        }, { 
+          onConflict: 'exam_id,student_id',
+          ignoreDuplicates: false 
+        })
+        .select('id')
+        .single();
         
-      if (result.error) throw result.error;
+      if (subError) throw subError;
       
-      if (result.data && !currentSubmissionId) {
-        setCurrentSubmissionId(result.data.id);
+      if (result && !currentSubmissionId) {
+        setCurrentSubmissionId(result.id);
       }
       setSaveStatus('saved');
       retryCount.current = 0; // Reset retries on success
@@ -297,15 +352,17 @@ const ExamRoom: React.FC = () => {
       setTimeout(() => setSaveStatus('idle'), 2000);
     } catch (err: any) {
       console.error('Error auto-saving draft:', err);
+      const errorMsg = err?.message || 'Unknown error';
       
       // Exponential backoff retry
       if (retryCount.current < maxRetries) {
         retryCount.current++;
         const backoffMs = Math.pow(2, retryCount.current) * 1000;
-        console.warn(`ExamRoom: Save failed. Retrying in ${backoffMs}ms... (Attempt ${retryCount.current})`);
+        console.warn(`ExamRoom: Save failed (${errorMsg}). Retrying in ${backoffMs}ms... (Attempt ${retryCount.current})`);
         setTimeout(() => saveDraft(currentAnswers), backoffMs);
       } else {
         setSaveStatus('error');
+        showToast(`Auto-save failed: ${errorMsg}. Please use Manual Sync.`, 'error');
       }
     }
   }, [student, examId, currentSubmissionId, isSubmitting]);
@@ -378,7 +435,10 @@ const ExamRoom: React.FC = () => {
 
       const { error: subError } = await supabase
         .from('submissions')
-        .upsert(currentSubmissionId ? [{ ...submissionData, id: currentSubmissionId }] : [submissionData]);
+        .upsert({
+          ...submissionData,
+          id: currentSubmissionId || undefined
+        }, { onConflict: 'exam_id,student_id' });
 
       if (subError) throw subError;
       localStorage.removeItem(`exam_start_${examId}`);
@@ -416,7 +476,10 @@ const ExamRoom: React.FC = () => {
 
       const { error: subError } = await supabase
         .from('submissions')
-        .upsert(currentSubmissionId ? [{ ...submissionData, id: currentSubmissionId }] : [submissionData]);
+        .upsert({
+          ...submissionData,
+          id: currentSubmissionId || undefined
+        }, { onConflict: 'exam_id,student_id' });
 
       if (subError) throw subError;
 
@@ -424,9 +487,9 @@ const ExamRoom: React.FC = () => {
       localStorage.removeItem(`exam_start_${examId}`);
       localStorage.removeItem(`exam_answers_backup_${examId}`);
       navigate(`/dashboard`);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error submitting exam:', err);
-      showToast('Failed to submit exam. Please contact your invigilator.', 'error');
+      showToast(`Failed to submit exam: ${err?.message || 'Please contact your invigilator.'}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -454,6 +517,89 @@ const ExamRoom: React.FC = () => {
     } catch {
       showToast('Failed to copy. Please copy the questions manually.', 'error');
     }
+  };
+
+  const handleDownloadBackupScript = () => {
+    if (questions.length === 0) return;
+
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    const maxWidth = pageWidth - (margin * 2);
+    let y = margin;
+
+    // Helper to add text and manage pagination
+    const addWrappedText = (text: string, fontSize: number, isBold: boolean, color: number = 0) => {
+      doc.setFontSize(fontSize);
+      doc.setFont('helvetica', isBold ? 'bold' : 'normal');
+      doc.setTextColor(color);
+      
+      const lines = doc.splitTextToSize(text, maxWidth);
+      const lineHeight = fontSize * 0.4;
+      
+      for (let i = 0; i < lines.length; i++) {
+        if (y + lineHeight > pageHeight - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(lines[i], margin, y);
+        y += lineHeight;
+      }
+      y += 2; // Extra padding after block
+    };
+
+    // Header
+    addWrappedText('OFFICIAL EXAM BACKUP SCRIPT', 16, true);
+    y += 5;
+    addWrappedText(`Examination: ${exam?.title || 'Unknown Exam'}`, 12, false, 100);
+    addWrappedText(`Student Number: ${student?.student_number || 'Unknown'}`, 12, false, 100);
+    addWrappedText(`Generated At: ${new Date().toLocaleString()}`, 10, false, 150);
+    y += 10;
+
+    // Questions
+    questions.forEach((q, index) => {
+      // Add a separator space between questions
+      if (index > 0) y += 8;
+      
+      // Question Header
+      addWrappedText(`QUESTION ${index + 1} (${q.marks} Marks) - ${q.type.toUpperCase()}`, 11, true, 80);
+      y += 2;
+      
+      // Question Text
+      addWrappedText(q.question_text, 11, false, 0);
+      
+      // MCQ Options
+      if (q.type === 'mcq' && q.options && q.options.length > 0) {
+        y += 2;
+        q.options.forEach((opt, oIdx) => {
+          addWrappedText(`  ${String.fromCharCode(65 + oIdx)}. ${opt}`, 11, false, 60);
+        });
+      }
+
+      y += 4;
+      
+      // Student Answer
+      addWrappedText('YOUR ANSWER:', 10, true, 80);
+      const currentAns = answers[q.id] || '(No Answer Provided)';
+      addWrappedText(currentAns, 11, false, 0);
+      
+      // Draw a subtle line separator
+      if (y < pageHeight - margin - 5) {
+        y += 4;
+        doc.setDrawColor(200);
+        doc.line(margin, y, pageWidth - margin, y);
+        y += 4;
+      }
+    });
+
+    doc.save(`Exam_Backup_${student?.student_number}_${new Date().getTime()}.pdf`);
+    showToast('Backup PDF downloaded successfully.', 'success');
   };
 
   const handleConfirmSubmit = () => {
@@ -569,40 +715,64 @@ const ExamRoom: React.FC = () => {
               </>
             )}
           </button>
+          
+          <button
+            onClick={handleDownloadBackupScript}
+            disabled={isSubmitting || questions.length === 0}
+            className="group flex items-center gap-2 text-panel/40 hover:text-white transition-colors mt-4 text-sm font-medium border border-transparent hover:border-white/10 px-4 py-2 rounded-lg"
+            title="Download a local text copy of your answers in case of system failure"
+          >
+            <FileDown className="w-4 h-4" />
+            Download Backup Script
+          </button>
         </div>
       </main>
+
+      {/* Floating Save Button - "At all costs" visibility */}
+      <div className="fixed bottom-24 right-8 z-50 flex flex-col items-end gap-2 animate-bounce-subtle">
+        <button
+          onClick={() => saveDraft(answers)}
+          disabled={saveStatus === 'saving' || isSubmitting}
+          className={`flex items-center gap-2 pr-6 pl-5 py-3 rounded-full font-bold uppercase tracking-widest transition-all shadow-2xl ${
+            saveStatus === 'saving' ? 'bg-white/5 text-panel/40 cursor-wait h-[48px]' :
+            saveStatus === 'saved' ? 'bg-green-500 text-primary h-[48px]' :
+            saveStatus === 'error' ? 'bg-red-500 text-white animate-pulse h-[48px]' :
+            'bg-accent text-primary hover:scale-105 hover:shadow-accent/40 h-[48px]'
+          }`}
+        >
+          {saveStatus === 'saving' ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" />
+              Syncing...
+            </>
+          ) : saveStatus === 'saved' ? (
+            <>
+              Synced ✓
+            </>
+          ) : saveStatus === 'error' ? (
+            <>
+              <AlertTriangle className="w-5 h-5" />
+              Retry Save
+            </>
+          ) : (
+            <>
+              <Save className="w-5 h-5" />
+              Save Progress
+            </>
+          )}
+        </button>
+        {saveStatus === 'error' && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] px-3 py-1 rounded-lg backdrop-blur-md">
+            Click to retry manual save
+          </div>
+        )}
+      </div>
 
       {/* Footer Info */}
       <footer className="fixed bottom-0 left-0 right-0 p-4 bg-primary/80 backdrop-blur-md border-t border-white/5">
         <div className="max-w-4xl mx-auto flex justify-between items-center text-[10px] text-panel/30 uppercase tracking-[0.2em]">
           <span>Student: {student?.student_number}</span>
           <div className="flex items-center gap-6">
-            <button
-              onClick={() => saveDraft(answers)}
-              disabled={saveStatus === 'saving' || isSubmitting}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest transition-all ${
-                saveStatus === 'saving' ? 'bg-white/5 text-panel/40 cursor-wait' :
-                saveStatus === 'saved' ? 'bg-green-500/10 text-green-400' :
-                saveStatus === 'error' ? 'bg-red-500/10 text-red-500 animate-pulse' :
-                'bg-white/10 text-white hover:bg-white/20'
-              }`}
-            >
-              {saveStatus === 'saving' ? (
-                <>
-                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                  Syncing...
-                </>
-              ) : saveStatus === 'saved' ? (
-                'Synced ✓'
-              ) : saveStatus === 'error' ? (
-                'Retry Save ⚠'
-              ) : (
-                <>
-                  <Save className="w-2.5 h-2.5" />
-                  Manual Sync
-                </>
-              )}
-            </button>
             <span className="flex items-center gap-1">
               <MousePointer className="w-3 h-3 text-accent" />
               Monitoring Active

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   Calendar, Search, FileEdit, Download, Trash2,
-  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle
+  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle, XCircle
 } from 'lucide-react';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
@@ -181,10 +181,11 @@ const Results: React.FC = () => {
     }
   };
 
-  const handleDeleteSubmission = async (submissionId: string) => {
+  const handleDeleteSubmission = async (submissionId: string, studentId?: string) => {
     showConfirm({
       title: 'Delete Submission',
-      message: 'Are you sure you want to delete this submission? This action cannot be undone and the student will lose their answers for this attempt.',
+      message: 'Are you sure you want to delete this submission? It will be moved to the Trash Box.',
+      confirmText: 'Delete',
       onConfirm: async () => {
         const { error, count } = await supabase
           .from('submissions')
@@ -197,7 +198,42 @@ const Results: React.FC = () => {
         } else if (count === 0) {
           showToast('Submission not found or permission denied.', 'error');
         } else {
-          showToast('Submission deleted successfully', 'success');
+          // Guaranteed clean slate: Clear all security violations for this student automatically
+          if (studentId) {
+            await supabase
+              .from('violations')
+              .delete()
+              .eq('exam_id', examId)
+              .eq('student_id', studentId);
+          }
+          showToast('Submission deleted successfully. Student can start completely afresh.', 'success');
+          fetchResults();
+        }
+      }
+    });
+  };
+
+  const handleWipeStudent = async (studentId: string, studentNumber: string) => {
+    showConfirm({
+      title: 'Wipe Remaining Attempt',
+      message: `Are you sure you want to completely Wipe ${studentNumber}'s current attempt? This will permanently delete their active submission AND clear all their security violations. They will start completely fresh.`,
+      confirmText: 'Wipe Everything',
+      onConfirm: async () => {
+        // 1. Delete active submission (moves to trash)
+        await supabase.from('submissions').delete().eq('exam_id', examId).eq('student_id', studentId);
+        
+        // 2. Clear violations
+        const { error: violError } = await supabase
+          .from('violations')
+          .delete()
+          .eq('exam_id', examId)
+          .eq('student_id', studentId);
+        
+        if (violError) {
+          console.error('Wipe violations error:', violError);
+          showToast(`Failed to clear violations: ${violError.message}`, 'error');
+        } else {
+          showToast(`Student ${studentNumber}'s attempt and violations have been wiped clean.`, 'success');
           fetchResults();
         }
       }
@@ -209,22 +245,45 @@ const Results: React.FC = () => {
       title: 'Resume Student Session',
       message: `Do you want to allow student ${studentNumber} to resume their exam? Their latest submission will be converted back to a draft, allowing them to continue where they left off.`,
       onConfirm: async () => {
-        const { error } = await supabase
+        // 1. Reset the submission status and scores
+        const { error: subError } = await supabase
           .from('submissions')
           .update({ 
             status: 'draft',
             graded: false,
             score: 0,
-            is_manual: false
+            is_manual: false,
+            marking_details: null // Clear kick-out notes
           })
           .eq('id', submissionId);
 
-        if (error) {
-          showToast('Failed to resume session', 'error');
-        } else {
-          showToast('Session is now resumable by the student', 'success');
-          fetchResults();
+        if (subError) {
+          showToast('Failed to reset submission status', 'error');
+          return;
         }
+
+        // 2. Clear violation history for this specific attempt to allow re-entry
+        const { data: sub } = await supabase
+          .from('submissions')
+          .select('student_id, exam_id')
+          .eq('id', submissionId)
+          .single();
+
+        if (sub) {
+          const { error: violError } = await supabase
+            .from('violations')
+            .delete()
+            .eq('student_id', sub.student_id)
+            .eq('exam_id', sub.exam_id);
+          
+          if (violError) {
+            console.error('Error clearing violations:', violError);
+          }
+        }
+
+
+        showToast('Session is now resumable by the student', 'success');
+        fetchResults();
       }
     });
   };
@@ -576,9 +635,34 @@ const Results: React.FC = () => {
                                   By: {latest.marked_by_name || latest.marked_by_email}
                                 </p>
                               ) : null}
-                              <FileEdit className="w-4 h-4 text-slate-300" />
                             </div>
                           </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                              <button
+                                onClick={() => navigate(`/lecturer/review/${latest.id}`)}
+                                className="flex items-center gap-1 bg-primary/10 text-primary border border-primary/20 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-all"
+                              >
+                                <FileEdit className="w-3.5 h-3.5" />
+                                Mark
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSubmission(latest.id, group.student.id)}
+                                className="p-1.5 text-orange-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                                title="Delete submission (Move to Trash)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => group.student?.id && handleWipeStudent(group.student.id, group.student.student_number)}
+                                className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all"
+                                title="Wipe Student Attempt (Deletes submission AND clears all violations to allow a full fresh start)"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+
                         </tr>
                         {isExpanded && (
                           <tr>
@@ -635,7 +719,7 @@ const Results: React.FC = () => {
                                             <button
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                handleDeleteSubmission(sub.id);
+                                                handleDeleteSubmission(sub.id, group.student.id);
                                               }}
                                               className="text-red-400 hover:text-red-600"
                                             >

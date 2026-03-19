@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
-  Trophy, CheckCircle2, AlertTriangle,
-  ArrowRight, GraduationCap, ChevronDown, ChevronUp,
-  MessageSquare, Target, ShieldCheck
+  Trophy, CheckCircle2, AlertTriangle, XCircle,
+  ArrowLeft, GraduationCap, ShieldCheck,
+  MessageSquare, Target, ChevronDown, ChevronUp,
+  Award, BookOpen, Zap
 } from 'lucide-react';
 
 const StudentResults: React.FC = () => {
@@ -12,7 +13,7 @@ const StudentResults: React.FC = () => {
   const [submission, setSubmission] = useState<any>(null);
   const [questions, setQuestions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [showDetails, setShowDetails] = useState(true);
+  const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -25,170 +26,245 @@ const StudentResults: React.FC = () => {
 
       if (sub && sub.graded) {
         setSubmission(sub);
-        
-        // Fetch questions to show titles in breakdown
         const { data: qs } = await supabase
           .from('questions')
           .select('*')
           .eq('exam_id', sub.exam_id)
           .order('order_index');
-        
         setQuestions(qs || []);
         setIsLoading(false);
       } else {
         setTimeout(fetchContent, 3000);
       }
     };
-
     fetchContent();
   }, [submissionId]);
+
+  const toggleExpand = (id: string) => {
+    setExpandedQuestions(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-primary flex flex-col items-center justify-center p-6 text-center">
         <div className="relative mb-8">
-          <div className="w-24 h-24 border-4 border-accent/20 border-t-accent rounded-full animate-spin"></div>
+          <div className="w-24 h-24 border-4 border-accent/20 border-t-accent rounded-full animate-spin" />
           <GraduationCap className="w-10 h-10 text-accent absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
         </div>
-        <h2 className="text-2xl font-bold mb-2">Marking in Progress</h2>
-        <p className="text-panel/60 max-w-xs">Your structured answers are currently being marked. This usually takes less than a minute.</p>
+        <h2 className="text-2xl font-bold mb-2 text-white">Marking in Progress</h2>
+        <p className="text-white/40 max-w-xs text-sm">Your answers are being reviewed. This usually takes less than a minute.</p>
       </div>
     );
   }
 
-  const percentage = (submission.score / submission.total_marks) * 100;
+  const percentage = submission.total_marks > 0 ? (submission.score / submission.total_marks) * 100 : 0;
   const isPassed = percentage >= 50;
 
+  // Compute color thresholds
+  const gradeColor = percentage >= 75 ? 'text-green-400' : percentage >= 50 ? 'text-[#00E5FF]' : percentage >= 35 ? 'text-orange-400' : 'text-red-400';
+  const gradeBg = percentage >= 75 ? 'from-green-500/20 to-green-500/5 border-green-500/20' : percentage >= 50 ? 'from-[#00E5FF]/20 to-[#00E5FF]/5 border-[#00E5FF]/20' : percentage >= 35 ? 'from-orange-500/20 to-orange-500/5 border-orange-500/20' : 'from-red-500/20 to-red-500/5 border-red-500/20';
+  const gradeLabel = percentage >= 75 ? 'Distinction' : percentage >= 60 ? 'Merit' : percentage >= 50 ? 'Pass' : percentage >= 35 ? 'Below Pass' : 'Fail';
+  const GradeIcon = percentage >= 50 ? Trophy : percentage >= 35 ? AlertTriangle : XCircle;
+
+  const totalAwarded = questions.reduce((acc, q) => acc + (submission.marking_details?.[q.id]?.awarded_marks ?? 0), 0);
+
   return (
-    <div className="min-h-screen bg-primary flex items-center justify-center p-6">
-      <div className="max-w-md w-full bg-white/5 border border-white/10 rounded-3xl p-8 text-center backdrop-blur-sm">
-        <div className={`inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-6 ${
-          isPassed ? 'bg-green-500/10 text-green-500' : 'bg-orange-500/10 text-orange-500'
-        }`}>
-          {isPassed ? <Trophy className="w-10 h-10" /> : <AlertTriangle className="w-10 h-10" />}
+    <div className="min-h-screen bg-primary text-white font-sans">
+      {/* ── Top Nav ── */}
+      <header className="sticky top-0 z-40 bg-primary/80 backdrop-blur-xl border-b border-white/[0.06] px-6 py-4">
+        <div className="max-w-3xl mx-auto flex items-center justify-between">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="flex items-center gap-2 text-white/40 hover:text-white transition-colors group text-sm"
+          >
+            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+            Dashboard
+          </button>
+          <div className="flex items-center gap-2 text-white/30 text-xs font-mono uppercase tracking-widest">
+            <BookOpen className="w-3.5 h-3.5" />
+            {submission.exams?.title}
+          </div>
+          <div className="w-20" />
         </div>
+      </header>
 
-        <h1 className="text-3xl font-bold mb-2">Exam Completed</h1>
-        <p className="text-panel/40 mb-8 uppercase tracking-widest text-xs font-bold">{submission.exams.title}</p>
+      <main className="max-w-3xl mx-auto px-6 py-10">
 
-        <div className="bg-white/5 rounded-2xl p-6 mb-8 mt-4">
-          <div className="text-5xl font-bold text-accent mb-2">
+        {/* ── Hero Score Card ── */}
+        <div className={`relative overflow-hidden rounded-3xl border bg-gradient-to-br ${gradeBg} p-8 mb-8 text-center`}>
+          {/* Decorative glow */}
+          <div className="absolute inset-0 pointer-events-none">
+            <div className={`absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full blur-3xl opacity-20 ${
+              isPassed ? 'bg-green-400' : 'bg-orange-400'
+            }`} />
+          </div>
+
+          <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-5 ${
+            percentage >= 75 ? 'bg-green-500/20 text-green-400' :
+            percentage >= 50 ? 'bg-[#00E5FF]/15 text-[#00E5FF]' :
+            'bg-orange-500/20 text-orange-400'
+          }`}>
+            <GradeIcon className="w-8 h-8" />
+          </div>
+
+          <p className="text-white/40 text-xs uppercase tracking-[0.25em] font-bold mb-2">Your Result</p>
+          <div className={`text-7xl font-black tabular-nums mb-1 ${gradeColor}`}>
             {percentage.toFixed(0)}%
           </div>
-          <div className="text-panel/60 font-medium">Overall Performance</div>
-          {(submission.marked_by_name || submission.marked_by_email) && (
-            <p className="text-[10px] text-panel/30 italic mt-2 font-medium tracking-wide">
-              Marked by: <span className="text-accent/60 not-italic">{submission.marked_by_name || submission.marked_by_email}</span>
-            </p>
-          )}
-        </div>
+          <p className="text-white/30 text-sm mb-4">{submission.score} / {submission.total_marks} marks</p>
 
-        <div className="space-y-4 mb-10">
-          <div className="flex justify-between items-center p-4 bg-white/5 rounded-xl text-sm">
-            <span className="text-panel/60">Status</span>
+          <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold border ${
+            percentage >= 75 ? 'bg-green-500/15 border-green-500/30 text-green-400' :
+            percentage >= 50 ? 'bg-[#00E5FF]/10 border-[#00E5FF]/30 text-[#00E5FF]' :
+            percentage >= 35 ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' :
+            'bg-red-500/10 border-red-500/30 text-red-400'
+          }`}>
+            {isPassed ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+            {gradeLabel}
+          </span>
+
+          {/* Marking status */}
+          <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-center gap-4 text-sm">
             {submission.is_manual ? (
-              <span className="text-accent font-bold flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4" />
-                Lecturer Marked Successfully
+              <span className="text-[#00E5FF] font-bold flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4" /> Lecturer Marked
               </span>
             ) : (
-              <span className="text-green-500 font-bold flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4" />
-                AI Marked Successfully
+              <span className="text-green-400 font-bold flex items-center gap-1.5">
+                <Zap className="w-4 h-4" /> AI Marked
+              </span>
+            )}
+            {(submission.marked_by_name || submission.marked_by_email) && (
+              <span className="text-white/30 text-xs italic">
+                by {submission.marked_by_name || submission.marked_by_email}
               </span>
             )}
           </div>
         </div>
 
-        <div className="mb-8">
-          <button 
-            onClick={() => setShowDetails(!showDetails)}
-            className="flex items-center gap-2 text-panel/60 hover:text-white transition-colors mx-auto text-sm font-bold uppercase tracking-widest"
-          >
-            {showDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            {showDetails ? 'Hide Marking Details' : 'View Marking Details'}
-          </button>
+        {/* ── Per-Question Breakdown ── */}
+        {questions.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xs text-white/40 uppercase tracking-[0.2em] font-bold flex items-center gap-2">
+                <Award className="w-3.5 h-3.5" />
+                Question Breakdown
+              </h2>
+              <span className="text-xs text-white/20 font-mono">{questions.length} questions</span>
+            </div>
 
-          {showDetails && (
-            <div className="mt-8 space-y-6 text-left">
-              {questions.map((q, idx) => {
+            <div className="space-y-3">
+              {questions.map((q) => {
                 const detail = submission.marking_details?.[q.id];
-                const studentAnswer = submission.answers?.[q.id] || '(No Answer)';
-                const pct = detail ? (detail.awarded_marks / q.marks) * 100 : 0;
+                const studentAnswer = submission.answers?.[q.id] || '';
+                const awarded = detail?.awarded_marks ?? 0;
+                const pct = q.marks > 0 ? (awarded / q.marks) * 100 : 0;
+                const isExpanded = expandedQuestions.has(q.id);
+
+                const barColor = pct === 100 ? 'bg-green-400' : pct >= 50 ? 'bg-[#00E5FF]' : pct > 0 ? 'bg-orange-400' : 'bg-white/10';
+                const dotColor = pct === 100 ? 'bg-green-400' : pct >= 50 ? 'bg-[#00E5FF]' : pct > 0 ? 'bg-orange-400' : 'bg-white/20';
+                const scoreColor = pct === 100 ? 'text-green-400' : pct >= 50 ? 'text-[#00E5FF]' : pct > 0 ? 'text-orange-400' : 'text-white/30';
 
                 return (
-                  <div key={q.id} className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-                    {/* Question header */}
-                    <div className="flex justify-between items-start p-6 border-b border-white/10">
-                      <div className="flex gap-3">
-                        <span className="w-7 h-7 rounded-lg bg-accent/10 text-accent font-bold text-xs flex items-center justify-center shrink-0">{idx + 1}</span>
-                        <h4 className="font-bold text-white text-sm leading-snug pt-0.5">{q.question_text}</h4>
-                      </div>
-                      <div className="text-right shrink-0 pl-4">
-                        <div className="text-lg font-black text-accent">{detail?.awarded_marks ?? '-'} <span className="text-panel/40 font-normal text-sm">/ {q.marks}</span></div>
-                        <div className="text-[10px] text-panel/30 uppercase font-bold tracking-widest">Marks</div>
-                      </div>
-                    </div>
-
-                    <div className="p-6 grid grid-cols-1 gap-4">
-                      {/* Your answer */}
-                      <div>
-                        <p className="text-[10px] text-panel/40 uppercase font-bold mb-2 flex items-center gap-1">
-                          <Target className="w-3 h-3" /> Your Answer
-                        </p>
-                        <pre className="p-4 bg-white/5 border border-white/10 rounded-xl font-mono text-sm text-panel/80 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-56">{studentAnswer}</pre>
-                      </div>
-
-                      {/* Correct / model answer */}
-                      <div>
-                        <p className="text-[10px] text-green-400/70 uppercase font-bold mb-2 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Correct Answer
-                        </p>
-                        <pre className="p-4 bg-green-500/5 border border-green-500/20 rounded-xl font-mono text-sm text-green-300 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-56">{q.correct_answer || '(No model answer provided)'}</pre>
-                      </div>
-
-                      {/* Marks bar */}
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${
-                              pct === 100 ? 'bg-green-500' : pct >= 50 ? 'bg-accent' : 'bg-orange-500'
-                            }`}
-                            style={{ width: `${pct}%` }}
-                          />
+                  <div
+                    key={q.id}
+                    className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden"
+                  >
+                    {/* Header row */}
+                    <button
+                      onClick={() => toggleExpand(q.id)}
+                      className="w-full flex items-center gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors text-left"
+                    >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white/80 truncate">{q.question_text}</p>
+                        {/* Score bar */}
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-[10px] text-white/25 uppercase tracking-wider font-bold">{pct.toFixed(0)}%</span>
                         </div>
-                        <span className="text-[10px] font-bold text-panel/40 uppercase tracking-widest shrink-0">{pct.toFixed(0)}%</span>
                       </div>
+                      <div className="shrink-0 text-right">
+                        <span className={`text-base font-black tabular-nums ${scoreColor}`}>{awarded}</span>
+                        <span className="text-white/20 text-sm font-normal"> / {q.marks}</span>
+                      </div>
+                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-white/20 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-white/20 shrink-0" />}
+                    </button>
 
-                      {/* Marker feedback */}
-                      {detail && (
-                        <div className={`p-4 rounded-xl border ${
-                          pct === 100 ? 'bg-green-500/10 border-green-500/20 text-green-400'
-                          : pct >= 50 ? 'bg-accent/10 border-accent/20 text-accent'
-                          : 'bg-orange-500/10 border-orange-500/20 text-orange-400'
-                        }`}>
-                          <p className="text-[10px] uppercase font-bold mb-1.5 flex items-center gap-1 opacity-60">
-                            <MessageSquare className="w-3 h-3" /> Marker Feedback
+                    {/* Expanded body */}
+                    {isExpanded && (
+                      <div className="border-t border-white/[0.05] px-5 py-4 space-y-4">
+                        {/* Your answer */}
+                        <div>
+                          <p className="text-[10px] text-white/30 uppercase tracking-[0.15em] font-bold mb-1.5 flex items-center gap-1">
+                            <Target className="w-2.5 h-2.5" /> Your Answer
                           </p>
-                          <p className="text-xs font-medium leading-relaxed">{detail.feedback}</p>
+                          {studentAnswer ? (
+                            <pre className="p-3 bg-white/[0.03] border border-white/[0.05] rounded-xl font-mono text-xs text-white/60 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-48">
+                              {studentAnswer}
+                            </pre>
+                          ) : (
+                            <p className="text-xs text-white/20 italic p-3 bg-white/[0.02] rounded-xl border border-white/[0.04]">No answer provided.</p>
+                          )}
                         </div>
-                      )}
-                    </div>
+
+                        {/* Correct answer */}
+                        {q.correct_answer && (
+                          <div>
+                            <p className="text-[10px] text-green-400/50 uppercase tracking-[0.15em] font-bold mb-1.5 flex items-center gap-1">
+                              <CheckCircle2 className="w-2.5 h-2.5" /> {q.type === 'mcq' ? 'Correct Answer' : 'Model Answer'}
+                            </p>
+                            <pre className="p-3 bg-green-500/[0.04] border border-green-500/15 rounded-xl font-mono text-xs text-green-300/70 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-48">
+                              {q.correct_answer}
+                            </pre>
+                          </div>
+                        )}
+
+                        {/* Feedback */}
+                        {detail?.feedback && (
+                          <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                            pct === 100 ? 'bg-green-500/5 border-green-500/15 text-green-300/80'
+                            : pct >= 50 ? 'bg-[#00E5FF]/5 border-[#00E5FF]/15 text-[#00E5FF]/70'
+                            : 'bg-orange-500/5 border-orange-500/15 text-orange-300/70'
+                          }`}>
+                            <p className="flex items-center gap-1 text-[9px] uppercase tracking-widest font-bold opacity-60 mb-1">
+                              <MessageSquare className="w-2.5 h-2.5" /> Feedback
+                            </p>
+                            {detail.feedback}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
-          )}
-        </div>
 
+            {/* Summary footer */}
+            <div className="mt-6 flex items-center justify-between px-4 py-3 bg-white/[0.02] border border-white/[0.05] rounded-xl">
+              <span className="text-xs text-white/30 font-bold uppercase tracking-widest">Total Awarded</span>
+              <span className={`text-lg font-black tabular-nums ${gradeColor}`}>
+                {totalAwarded} <span className="text-white/20 font-normal text-sm">/ {submission.total_marks}</span>
+              </span>
+            </div>
+          </section>
+        )}
+
+        {/* ── Return Button ── */}
         <button
           onClick={() => navigate('/dashboard')}
-          className="w-full bg-white text-primary font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-panel transition-all"
+          className="mt-8 w-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-all group"
         >
           Return to Dashboard
-          <ArrowRight className="w-5 h-5" />
+          <ArrowLeft className="w-4 h-4 rotate-180 group-hover:translate-x-0.5 transition-transform" />
         </button>
-      </div>
+      </main>
     </div>
   );
 };
