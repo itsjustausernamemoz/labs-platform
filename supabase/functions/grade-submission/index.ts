@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-app-name',
 }
 
 serve(async (req) => {
@@ -12,8 +12,44 @@ serve(async (req) => {
   }
 
   try {
-    const { submissionId } = await req.json()
-    const geminiApiKey = 'AIzaSyDPQ4zPw3srzdCkDYPH7NCrJgjLCv0gvaE';
+    const { submissionId, prompt } = await req.json()
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+    
+    console.log(`GEMINI_API_KEY present: ${!!geminiApiKey}`);
+
+    if (!geminiApiKey) {
+      return new Response(JSON.stringify({ 
+        error: 'Missing GEMINI_API_KEY. Please set this in Supabase Dashboard > Settings > Edge Functions > Secrets.' 
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // If a prompt is provided, we act as a secure proxy for the grading request
+    if (prompt) {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1 }
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return new Response(JSON.stringify({ error: `Gemini API error: ${errorText}` }), {
+          status: response.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const data = await response.json();
+      return new Response(JSON.stringify(data), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',

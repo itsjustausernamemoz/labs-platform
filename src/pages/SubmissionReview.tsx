@@ -163,26 +163,38 @@ Exam Data:
 ${JSON.stringify(promptData, null, 2)}
       `;
 
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }],
-          generationConfig: {
-            temperature: 0.1,
-          }
-        })
+      const { data, error: invokeError } = await supabase.functions.invoke('grade-submission', {
+        body: { prompt: promptText }
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Gemini API Error details:', response.status, errorText);
-        throw new Error(`API returned ${response.status}: ${errorText.substring(0, 100)}...`);
+      if (invokeError) {
+        console.error('Full Edge Function Error Object:', invokeError);
+        let detail = invokeError.message || 'Unknown error';
+        
+        // FunctionsHttpError contains the status and potentially the response body
+        if (invokeError instanceof Error) {
+          const status = (invokeError as any).status;
+          if (status) detail = `(Status ${status}) ${detail}`;
+          
+          try {
+            // Some versions of supabase-js place the response body in .context
+            const context = (invokeError as any).context;
+            if (context && typeof context.json === 'function') {
+              const body = await context.json();
+              if (body?.error) detail += ` - ${body.error}`;
+            }
+          } catch (e) {
+            console.error('Failed to parse error body:', e);
+          }
+        }
+
+        if (detail.includes('404')) {
+          throw new Error('AI marking server not found. Please run: supabase functions deploy');
+        }
+        throw new Error(`AI marking failed: ${detail}`);
       }
 
-      const data = await response.json();
-      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!rawText) throw new Error('AI returned an empty response.');
 
       // Strip potential markdown formatting if Gemini included it despite instructions
@@ -625,9 +637,9 @@ ${JSON.stringify(promptData, null, 2)}
                             : qPct >= 50 ? 'border-[#00E5FF]/15 text-[#00E5FF]/80 bg-[#00E5FF]/5'
                               : 'border-orange-500/20 text-orange-300/80 bg-orange-500/5'
                           }`}>
-                          {isViolation ? (
+                          {isViolation && !currentFeedback ? (
                             <div className="p-4 bg-transparent border-none outline-none resize-none w-full text-sm">
-                              Marking suppressed due to violation. Adjust 'Awarded' to mark manually.
+                              Marking suppressed due to violation. Adjust 'Awarded' or click 'Automark with AI' to override manually.
                             </div>
                           ) : (
                             <textarea

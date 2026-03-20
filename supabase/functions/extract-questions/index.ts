@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-app-name',
 }
 
 serve(async (req) => {
@@ -13,10 +13,17 @@ serve(async (req) => {
 
   try {
     const { examId, text } = await req.json()
-    const geminiApiKey = 'AIzaSyDPQ4zPw3srzdCkDYPH7NCrJgjLCv0gvaE';
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+    
+    console.log(`GEMINI_API_KEY present: ${!!geminiApiKey}`);
 
     if (!geminiApiKey) {
-      throw new Error('Missing GEMINI_API_KEY')
+      return new Response(JSON.stringify({ 
+        error: 'Missing GEMINI_API_KEY. Please set this in Supabase Dashboard > Settings > Edge Functions > Secrets.' 
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
     }
 
     const prompt = `
