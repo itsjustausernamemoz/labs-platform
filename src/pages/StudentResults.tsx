@@ -177,11 +177,11 @@ const StudentResults: React.FC = () => {
                     {/* Header row */}
                     <button
                       onClick={() => toggleExpand(q.id)}
-                      className="w-full flex items-center gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors text-left"
+                      className="w-full flex items-start gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors text-left"
                     >
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+                      <span className={`w-2 h-2 rounded-full shrink-0 mt-2 ${dotColor}`} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white/80 truncate">{q.question_text}</p>
+                        <p className="text-sm font-medium text-white/80 whitespace-normal break-words">{q.question_text}</p>
                         {/* Score bar */}
                         <div className="flex items-center gap-2 mt-1.5">
                           <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
@@ -218,7 +218,7 @@ const StudentResults: React.FC = () => {
                         {q.correct_answer && (
                           <div>
                             <p className="text-[10px] text-green-400/50 uppercase tracking-[0.15em] font-bold mb-1.5 flex items-center gap-1">
-                              <CheckCircle2 className="w-2.5 h-2.5" /> {q.type === 'mcq' ? 'Correct Answer' : 'Model Answer'}
+                              <CheckCircle2 className="w-2.5 h-2.5" /> {q.type === 'mcq' ? 'Answer' : 'Answer'}
                             </p>
                             <pre className="p-3 bg-green-500/[0.04] border border-green-500/15 rounded-xl font-mono text-xs text-green-300/70 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-48">
                               {q.correct_answer}

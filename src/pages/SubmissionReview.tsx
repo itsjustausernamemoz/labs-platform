@@ -6,7 +6,7 @@ import {
   ArrowLeft, CheckCircle2, ShieldAlert,
   Save, Loader2, Info, ShieldCheck,
   Trash2, RotateCcw, User, BookOpen, Award, Clock,
-  ChevronDown, ChevronUp, Zap
+  ChevronDown, ChevronUp, Zap, Sparkles
 } from 'lucide-react';
 
 interface Question {
@@ -43,7 +43,9 @@ const SubmissionReview: React.FC = () => {
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
+  const [feedbackOverrides, setFeedbackOverrides] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isAutomarking, setIsAutomarking] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [violationCount, setViolationCount] = useState(0);
@@ -83,10 +85,13 @@ const SubmissionReview: React.FC = () => {
       setViolationCount(vCount || 0);
 
       const initialOverrides: Record<string, number> = {};
+      const initialFeedbackOverrides: Record<string, string> = {};
       Object.entries(sub.marking_details || {}).forEach(([id, detail]: [string, any]) => {
         initialOverrides[id] = detail.awarded_marks;
+        initialFeedbackOverrides[id] = detail.feedback;
       });
       setOverrides(initialOverrides);
+      setFeedbackOverrides(initialFeedbackOverrides);
     } catch (err) {
       console.error('Error fetching submission review:', err);
       showToast('Failed to load submission data.', 'error');
@@ -98,6 +103,10 @@ const SubmissionReview: React.FC = () => {
   const handleOverrideChange = (questionId: string, value: number, maxMarks: number) => {
     const val = Math.max(0, Math.min(maxMarks, value));
     setOverrides({ ...overrides, [questionId]: val });
+  };
+
+  const handleFeedbackChange = (questionId: string, value: string) => {
+    setFeedbackOverrides({ ...feedbackOverrides, [questionId]: value });
   };
 
   const handleFullMark = (questionId: string, maxMarks: number) => {
@@ -115,6 +124,96 @@ const SubmissionReview: React.FC = () => {
     }, 0);
   };
 
+  const handleAutomark = async () => {
+    if (!submission || questions.length === 0) return;
+    setIsAutomarking(true);
+    showToast('AI is marking the submission... Please wait.', 'info');
+
+    try {
+      // Build Prompt payload
+      const promptData = questions.map(q => ({
+        id: q.id,
+        question: q.question_text,
+        type: q.type,
+        max_marks: q.marks,
+        model_answer: q.correct_answer || 'None provided. Evaluate based on general knowledge.',
+        student_answer: submission.answers[q.id] || 'NO ANSWER PROVIDED'
+      }));
+
+      const promptText = `
+You are a highly experienced academic examiner. You are grading an exam submission for a student.
+Please accurately and fairly grade the following student answers against the max_marks and model_answer provided.
+
+### Grading Guidelines:
+1. **Professional Judgment:** Use your professional judgment to evaluate the student's understanding. Do not penalize for minor spelling or grammar errors unless they obscure the meaning.
+2. **Conceptual Evaluation:** For structured/essay questions, look for the core concepts described in the model_answer. If the student accurately describes the concept in their own words, award full marks.
+3. **Partial Marks:** Award partial marks (in increments of 0.5) for partially correct answers that show some understanding. 
+4. **No Binary Marking:** Avoid 0 or Max marking for structured questions unless the answer is completely wrong/missing or perfectly correct.
+5. **Constructive Feedback:** Provide a constructive, concise sentence of feedback for EVERY question. Address the student directly (e.g., "You correctly identified..., but forgot to mention...").
+
+Return exactly and strictly a raw JSON object with NO markdown formatting, NO backticks, NO "json" wrapping. The object must map the question object "id" to its respective grading data. Example output format:
+{
+  "question-id-uuid-here": {
+    "marks": 1.5,
+    "feedback": "Great start on the definition! You missed the second key requirement, but showed good understanding of the first."
+  }
+}
+
+Exam Data:
+${JSON.stringify(promptData, null, 2)}
+      `;
+
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: {
+            temperature: 0.1,
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Gemini API Error details:', response.status, errorText);
+        throw new Error(`API returned ${response.status}: ${errorText.substring(0, 100)}...`);
+      }
+
+      const data = await response.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) throw new Error('AI returned an empty response.');
+
+      // Strip potential markdown formatting if Gemini included it despite instructions
+      const cleanJsonStr = rawText.replace(/^```json/g, '').replace(/^```/g, '').replace(/```$/g, '').trim();
+      const aiResults = JSON.parse(cleanJsonStr);
+
+      const newOverrides = { ...overrides };
+      const newFeedback = { ...feedbackOverrides };
+
+      questions.forEach(q => {
+        if (aiResults[q.id]) {
+          newOverrides[q.id] = Math.max(0, Math.min(q.marks, Number(aiResults[q.id].marks) || 0));
+          newFeedback[q.id] = aiResults[q.id].feedback || 'Marked by AI.';
+        }
+      });
+
+      setOverrides(newOverrides);
+      setFeedbackOverrides(newFeedback);
+      showToast('AI Automarking complete! Please review and save.', 'success');
+
+      // Auto expand all questions so the lecturer can quickly review the feedback
+      setCollapsedQuestions(new Set());
+
+    } catch (err: any) {
+      console.error('Automarking error:', err);
+      showToast(`Automarking failed: ${err.message}`, 'error');
+    } finally {
+      setIsAutomarking(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!submission) return;
     setIsSaving(true);
@@ -124,7 +223,7 @@ const SubmissionReview: React.FC = () => {
 
       questions.forEach((q) => {
         const overrideMarks = overrides[q.id] ?? submission.marking_details?.[q.id]?.awarded_marks ?? 0;
-        const existingFeedback = submission.marking_details?.[q.id]?.feedback ?? 'Manually marked by lecturer.';
+        const existingFeedback = feedbackOverrides[q.id] ?? submission.marking_details?.[q.id]?.feedback ?? 'Manually marked by lecturer.';
         const clamped = Math.max(0, Math.min(q.marks, overrideMarks));
         updatedDetails[q.id] = { awarded_marks: clamped, feedback: existingFeedback };
         newTotalScore += clamped;
@@ -157,9 +256,14 @@ const SubmissionReview: React.FC = () => {
         marked_by_name: profileRes.data?.full_name
       });
 
-      const fresh: Record<string, number> = {};
-      questions.forEach((q) => { fresh[q.id] = updatedDetails[q.id].awarded_marks; });
-      setOverrides(fresh);
+      const freshOverrides: Record<string, number> = {};
+      const freshFeedback: Record<string, string> = {};
+      questions.forEach((q) => {
+        freshOverrides[q.id] = updatedDetails[q.id].awarded_marks;
+        freshFeedback[q.id] = updatedDetails[q.id].feedback;
+      });
+      setOverrides(freshOverrides);
+      setFeedbackOverrides(freshFeedback);
 
       showToast('Marks saved. The student can now see their updated script.', 'success');
     } catch (err) {
@@ -258,15 +362,23 @@ const SubmissionReview: React.FC = () => {
           <div className="flex items-center gap-2">
             <button
               onClick={handleDeleteSubmission}
-              disabled={isDeleting}
+              disabled={isDeleting || isAutomarking}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-bold text-red-400 border border-red-500/20 hover:bg-red-500/10 hover:border-red-500/40 transition-all disabled:opacity-40"
             >
               {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
               Delete
             </button>
             <button
+              onClick={handleAutomark}
+              disabled={isAutomarking || isSaving}
+              className="flex items-center gap-2 bg-purple-500/10 text-purple-400 border border-purple-500/20 px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-500/20 hover:border-purple-500/40 transition-all shadow-[0_0_16px_rgba(168,85,247,0.1)] disabled:opacity-50"
+            >
+              {isAutomarking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              Automark with AI
+            </button>
+            <button
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={isSaving || isAutomarking}
               className="flex items-center gap-2 bg-[#00E5FF] text-[#0D1117] px-4 py-2 rounded-lg font-bold text-sm hover:bg-[#00E5FF]/90 transition-all disabled:opacity-50 shadow-[0_0_16px_rgba(0,229,255,0.3)]"
             >
               {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -300,21 +412,18 @@ const SubmissionReview: React.FC = () => {
           </div>
 
           {/* Violations */}
-          <div className={`bg-white/[0.03] border rounded-2xl p-6 flex flex-col justify-between ${
-            violationCount === 0 ? 'border-white/[0.06]' : violationCount >= 3 ? 'border-red-500/30 bg-red-500/[0.04]' : 'border-orange-500/30 bg-orange-500/[0.04]'
-          }`}>
+          <div className={`bg-white/[0.03] border rounded-2xl p-6 flex flex-col justify-between ${violationCount === 0 ? 'border-white/[0.06]' : violationCount >= 3 ? 'border-red-500/30 bg-red-500/[0.04]' : 'border-orange-500/30 bg-orange-500/[0.04]'
+            }`}>
             <p className="text-xs text-white/40 uppercase tracking-[0.2em] font-bold mb-3">Security</p>
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                violationCount === 0 ? 'bg-green-500/10 text-green-400' :
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${violationCount === 0 ? 'bg-green-500/10 text-green-400' :
                 violationCount >= 3 ? 'bg-red-500/10 text-red-400' : 'bg-orange-500/10 text-orange-400'
-              }`}>
+                }`}>
                 <ShieldAlert className="w-5 h-5" />
               </div>
               <div>
-                <p className={`text-2xl font-black ${
-                  violationCount === 0 ? 'text-green-400' : violationCount >= 3 ? 'text-red-400' : 'text-orange-400'
-                }`}>{violationCount}</p>
+                <p className={`text-2xl font-black ${violationCount === 0 ? 'text-green-400' : violationCount >= 3 ? 'text-red-400' : 'text-orange-400'
+                  }`}>{violationCount}</p>
                 <p className="text-xs text-white/30 font-medium">Violation{violationCount !== 1 ? 's' : ''}</p>
               </div>
             </div>
@@ -382,7 +491,8 @@ const SubmissionReview: React.FC = () => {
             const detail = submission.marking_details?.[q.id] || { awarded_marks: 0, feedback: 'Not yet marked.' };
             const studentAnswer = submission.answers?.[q.id] || '';
             const awarded = overrides[q.id] ?? detail.awarded_marks;
-            const isModified = overrides[q.id] !== undefined && overrides[q.id] !== detail.awarded_marks;
+            const currentFeedback = feedbackOverrides[q.id] ?? detail.feedback;
+            const isModified = (overrides[q.id] !== undefined && overrides[q.id] !== detail.awarded_marks) || (feedbackOverrides[q.id] !== undefined && feedbackOverrides[q.id] !== detail.feedback);
             const isCollapsed = collapsedQuestions.has(q.id);
             const qPct = q.marks > 0 ? (awarded / q.marks) * 100 : 0;
             const isMCQ = q.type === 'mcq';
@@ -391,26 +501,24 @@ const SubmissionReview: React.FC = () => {
             return (
               <div
                 key={q.id}
-                className={`rounded-2xl border overflow-hidden transition-all duration-200 ${
-                  isModified ? 'border-[#00E5FF]/30 shadow-[0_0_20px_rgba(0,229,255,0.05)]' : 'border-white/[0.06]'
-                } bg-white/[0.02]`}
+                className={`rounded-2xl border overflow-hidden transition-all duration-200 ${isModified ? 'border-[#00E5FF]/30 shadow-[0_0_20px_rgba(0,229,255,0.05)]' : 'border-white/[0.06]'
+                  } bg-white/[0.02]`}
               >
                 {/* Card Header */}
                 <div
-                  className="flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
+                  className="flex items-start justify-between px-6 py-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
                   onClick={() => toggleCollapse(q.id)}
                 >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <span className={`w-8 h-8 rounded-lg font-black text-xs flex items-center justify-center shrink-0 ${
-                      qPct === 100 ? 'bg-green-500/20 text-green-400' :
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <span className={`w-8 h-8 rounded-lg font-black text-xs flex items-center justify-center shrink-0 mt-0.5 ${qPct === 100 ? 'bg-green-500/20 text-green-400' :
                       qPct >= 50 ? 'bg-[#00E5FF]/15 text-[#00E5FF]' :
-                      awarded > 0 ? 'bg-orange-500/20 text-orange-400' :
-                      'bg-white/5 text-white/30'
-                    }`}>
+                        awarded > 0 ? 'bg-orange-500/20 text-orange-400' :
+                          'bg-white/5 text-white/30'
+                      }`}>
                       {index + 1}
                     </span>
                     <div className="min-w-0">
-                      <p className="font-semibold text-white/90 text-sm leading-snug truncate">{q.question_text}</p>
+                      <p className="font-semibold text-white/90 text-sm leading-snug whitespace-normal break-words">{q.question_text}</p>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] text-white/30 uppercase tracking-widest font-bold">{q.type}</span>
                         {isMCQ && (
@@ -445,9 +553,8 @@ const SubmissionReview: React.FC = () => {
                       </button>
                     </div>
                     <div
-                      className={`flex items-center gap-1 px-3 py-1.5 rounded-xl border text-sm font-bold ${
-                        isModified ? 'bg-[#00E5FF]/10 border-[#00E5FF]/30 text-[#00E5FF]' : 'bg-white/5 border-white/10 text-white'
-                      }`}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-xl border text-sm font-bold ${isModified ? 'bg-[#00E5FF]/10 border-[#00E5FF]/30 text-[#00E5FF]' : 'bg-white/5 border-white/10 text-white'
+                        }`}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
@@ -468,9 +575,8 @@ const SubmissionReview: React.FC = () => {
                 {/* Score bar */}
                 <div className="h-0.5 bg-white/5 mx-6">
                   <div
-                    className={`h-full rounded-full transition-all duration-300 ${
-                      qPct === 100 ? 'bg-green-400' : qPct >= 50 ? 'bg-[#00E5FF]' : qPct > 0 ? 'bg-orange-400' : 'bg-white/10'
-                    }`}
+                    className={`h-full rounded-full transition-all duration-300 ${qPct === 100 ? 'bg-green-400' : qPct >= 50 ? 'bg-[#00E5FF]' : qPct > 0 ? 'bg-orange-400' : 'bg-white/10'
+                      }`}
                     style={{ width: `${Math.min(100, qPct)}%` }}
                   />
                 </div>
@@ -514,15 +620,23 @@ const SubmissionReview: React.FC = () => {
                           <Info className="w-2.5 h-2.5" />
                           Marking Feedback
                         </h4>
-                        <div className={`p-4 rounded-xl border text-sm leading-relaxed ${
-                          isViolation ? 'bg-red-500/5 border-red-500/20 text-red-300/80'
-                          : qPct === 100 ? 'bg-green-500/5 border-green-500/20 text-green-300'
-                          : qPct >= 50 ? 'bg-[#00E5FF]/5 border-[#00E5FF]/15 text-[#00E5FF]/80'
-                          : 'bg-orange-500/5 border-orange-500/20 text-orange-300/80'
-                        }`}>
-                          {isViolation
-                            ? "Marking suppressed due to violation. Adjust 'Awarded' to mark manually."
-                            : detail.feedback}
+                        <div className={`mt-2 rounded-xl border text-sm leading-relaxed overflow-hidden transition-all ${isViolation ? 'border-red-500/20 text-red-300/80 bg-red-500/5'
+                          : qPct === 100 ? 'border-green-500/20 text-green-300 bg-green-500/5'
+                            : qPct >= 50 ? 'border-[#00E5FF]/15 text-[#00E5FF]/80 bg-[#00E5FF]/5'
+                              : 'border-orange-500/20 text-orange-300/80 bg-orange-500/5'
+                          }`}>
+                          {isViolation ? (
+                            <div className="p-4 bg-transparent border-none outline-none resize-none w-full text-sm">
+                              Marking suppressed due to violation. Adjust 'Awarded' to mark manually.
+                            </div>
+                          ) : (
+                            <textarea
+                              value={currentFeedback}
+                              onChange={(e) => handleFeedbackChange(q.id, e.target.value)}
+                              className="p-4 bg-transparent border-none outline-none resize-y min-h-[5rem] w-full text-sm leading-relaxed"
+                              placeholder="Enter feedback for the student..."
+                            />
+                          )}
                         </div>
                       </div>
 
@@ -536,11 +650,10 @@ const SubmissionReview: React.FC = () => {
                             <button
                               key={val}
                               onClick={() => setOverrides({ ...overrides, [q.id]: val })}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
-                                awarded === val
-                                  ? 'bg-[#00E5FF]/20 border-[#00E5FF]/40 text-[#00E5FF]'
-                                  : 'bg-white/[0.03] border-white/[0.06] text-white/40 hover:border-white/20 hover:text-white/70'
-                              }`}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${awarded === val
+                                ? 'bg-[#00E5FF]/20 border-[#00E5FF]/40 text-[#00E5FF]'
+                                : 'bg-white/[0.03] border-white/[0.06] text-white/40 hover:border-white/20 hover:text-white/70'
+                                }`}
                             >
                               {val}
                             </button>
@@ -551,9 +664,12 @@ const SubmissionReview: React.FC = () => {
                       {isModified && (
                         <button
                           onClick={() => {
-                            const fresh = { ...overrides };
-                            delete fresh[q.id];
-                            setOverrides(fresh);
+                            const freshOver = { ...overrides };
+                            const freshFeed = { ...feedbackOverrides };
+                            delete freshOver[q.id];
+                            delete freshFeed[q.id];
+                            setOverrides(freshOver);
+                            setFeedbackOverrides(freshFeed);
                           }}
                           className="flex items-center gap-1.5 text-xs text-white/30 hover:text-white/60 transition-colors"
                         >
@@ -583,8 +699,16 @@ const SubmissionReview: React.FC = () => {
             </div>
             <div className="w-px h-5 bg-white/10" />
             <button
+              onClick={handleAutomark}
+              disabled={isAutomarking || isSaving}
+              className="flex items-center gap-2 bg-purple-500/10 text-purple-400 border border-purple-500/20 px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-500/20 hover:border-purple-500/40 transition-all shadow-[0_0_16px_rgba(168,85,247,0.1)] disabled:opacity-50"
+            >
+              {isAutomarking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              Automark with AI
+            </button>
+            <button
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={isSaving || isAutomarking}
               className="flex items-center gap-2 bg-[#00E5FF] text-[#0D1117] px-5 py-2 rounded-xl font-bold text-sm hover:bg-[#00E5FF]/90 transition-all disabled:opacity-50 shadow-[0_0_16px_rgba(0,229,255,0.3)]"
             >
               {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}

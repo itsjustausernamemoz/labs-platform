@@ -329,69 +329,55 @@ const StudentDashboard: React.FC = () => {
                       <p className="text-sm text-panel/40">Submitted on {new Date(sub.submitted_at).toLocaleDateString()}</p>
                     </div>
                     
-                    <div className="flex items-center gap-6">
-                      <div className="text-right">
+                    <div className="flex items-center gap-4">
+                      <div className="text-right flex flex-col items-end">
                         {sub.graded ? (
                           <>
-                            <div className="text-2xl font-bold text-accent">
-                              {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}%
-                            </div>
-                            <div className="flex flex-col items-end text-right mt-1">
-                              {sub.is_manual ? (
-                                <div className="flex items-center gap-2 text-accent font-bold">
-                                  <ShieldCheck className="w-5 h-5" />
-                                  Lecturer Marked
-                                </div>
-                              ) : sub.graded ? (
-                                <div className="flex items-center gap-2 text-green-500 font-bold">
-                                  <CheckCircle2 className="w-5 h-5" />
-                                  Marked Successfully
-                                </div>
-                              ) : (
-                                <div className="flex flex-col items-end">
-                                  <div className="flex items-center gap-2 text-orange-500 font-bold">
-                                    <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse" />
-                                    Marking...
+                            <div className="flex flex-col items-end text-right">
+                              <div className="text-3xl font-black text-accent tabular-nums leading-none">
+                                {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}%
+                              </div>
+                              <div className="text-[10px] text-panel/40 font-bold uppercase tracking-widest mt-1">Grade</div>
+                              
+                              <div className="mt-4 flex flex-col items-end gap-2">
+                                {sub.is_manual ? (
+                                  <div className="flex items-center gap-1.5 text-accent font-bold text-xs bg-accent/10 px-2 py-1 rounded-lg">
+                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                    Lecturer Marked
                                   </div>
-                                  <span className="text-[10px] text-panel/40 font-bold uppercase tracking-tighter">In Progress</span>
-                                </div>
-                              )}
-                              {sub.marked_by_name || sub.marked_by_email ? (
-                                <p className="text-[10px] text-panel/30 italic mt-1 font-medium">
-                                  By: {sub.marked_by_name || sub.marked_by_email}
-                                </p>
-                              ) : null}
+                                ) : (
+                                  <div className="flex items-center gap-1.5 text-green-500 font-bold text-xs bg-green-500/10 px-2 py-1 rounded-lg">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    AI Marked
+                                  </div>
+                                )}
+                                
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(`/exam/results/${sub.id}`);
+                                  }}
+                                  className="flex items-center gap-2 bg-accent text-primary px-5 py-2.5 rounded-xl font-black text-xs hover:bg-accent/90 transition-all shadow-lg shadow-accent/20 group-hover:scale-105"
+                                >
+                                  Review Script
+                                  <ArrowRight className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
                           </>
                         ) : (
-                          <>
+                          <div className="flex flex-col items-end">
                             <div className="text-lg font-bold text-orange-500 flex items-center gap-2">
                               <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
                               Marking...
                             </div>
-                            <div className="text-xs text-panel/40 font-medium uppercase tracking-wider">In Progress</div>
-                          </>
+                            <div className="text-[10px] text-panel/40 font-bold uppercase tracking-wider mt-1">In Progress</div>
+                          </div>
                         )}
                       </div>
                       
-                      {isClickable ? (
-                        <div className="flex flex-col items-end gap-3">
-                          <div className="text-right">
-                            <div className="text-2xl font-bold text-accent">
-                                {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}%
-                            </div>
-                            <div className="text-[10px] text-panel/40 font-bold uppercase tracking-widest">Final Grade</div>
-                          </div>
-                          <button
-                            onClick={() => navigate(`/exam/results/${sub.id}`)}
-                            className="flex items-center gap-2 bg-accent text-primary px-4 py-2 rounded-lg font-bold text-sm hover:bg-accent/90 transition-all shadow-lg shadow-accent/20"
-                          >
-                            Review Script
-                            <ArrowRight className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-white/5 flex flex-shrink-0 items-center justify-center group-hover:bg-accent group-hover:text-primary transition-all ml-2 hidden md:flex">
+                      {!sub.graded && (
+                        <div className="w-10 h-10 rounded-full bg-white/5 flex flex-shrink-0 items-center justify-center opacity-20">
                           <ChevronRight className="w-5 h-5" />
                         </div>
                       )}
