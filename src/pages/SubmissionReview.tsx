@@ -6,8 +6,10 @@ import {
   ArrowLeft, CheckCircle2, ShieldAlert,
   Save, Loader2, Info, ShieldCheck,
   Trash2, RotateCcw, User, BookOpen, Award, Clock,
-  ChevronDown, ChevronUp, Zap, Sparkles
+  ChevronDown, ChevronUp, Zap, Sparkles, FileText
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface Question {
   id: string;
@@ -50,6 +52,7 @@ const SubmissionReview: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [violationCount, setViolationCount] = useState(0);
   const [collapsedQuestions, setCollapsedQuestions] = useState<Set<string>>(new Set());
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   useEffect(() => {
     fetchSubmissionData();
@@ -347,6 +350,158 @@ ${JSON.stringify(promptData, null, 2)}
 
   const liveScore = getLiveScore();
   const percentage = submission.total_marks > 0 ? (liveScore / submission.total_marks) * 100 : 0;
+  const handleGenerateFocusReport = async () => {
+    if (!submission) return;
+    setIsGeneratingReport(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-focus-report', {
+        body: { submissionId: submission.id }
+      });
+
+      if (error) throw error;
+
+      // PDF Generation logic
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.width;
+      
+      // -- Header --
+      doc.setFillColor(13, 17, 23);
+      doc.rect(0, 0, pageWidth, 40, 'F');
+      
+      doc.setTextColor(0, 229, 255);
+      doc.setFontSize(22);
+      doc.setFont('helvetica', 'bold');
+      doc.text('FOCUS REPORT', 20, 25);
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(10);
+      doc.text('AI-POWERED ACADEMIC ANALYSIS', 20, 32);
+      
+      // -- Student info --
+      doc.setTextColor(60, 60, 60);
+      doc.setFontSize(10);
+      doc.text(`STUDENT: ${submission.students.student_number}`, 20, 50);
+      doc.text(`EXAM: ${submission.exams.title}`, 20, 55);
+      doc.text(`DATE: ${new Date(submission.submitted_at || '').toLocaleDateString()}`, pageWidth - 20, 50, { align: 'right' });
+      doc.text(`SCORE: ${submission.score} / ${submission.total_marks} (${((submission.score / submission.total_marks) * 100).toFixed(1)}%)`, pageWidth - 20, 55, { align: 'right' });
+      
+      doc.setDrawColor(200, 200, 200);
+      doc.line(20, 60, pageWidth - 20, 60);
+
+      // -- Summary --
+      let yPos = 75;
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('OVERALL SUMMARY', 20, yPos);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      const summaryLines = doc.splitTextToSize(data.overall_summary, pageWidth - 40);
+      doc.text(summaryLines, 20, yPos + 8);
+      yPos += 15 + (summaryLines.length * 5);
+
+      // -- SWOT Analysis --
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('SWOT ANALYSIS', 20, yPos);
+      yPos += 10;
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [['S.W.O.T ANALYSIS', '']],
+        body: [
+          [{ content: 'STRENGTHS', styles: { fillColor: [232, 255, 232], fontStyle: 'bold' } }, { content: 'WEAKNESSES', styles: { fillColor: [255, 232, 232], fontStyle: 'bold' } }],
+          [data.swot.strengths.map((s: string) => `• ${s}`).join('\n'), data.swot.weaknesses.map((w: string) => `• ${w}`).join('\n')],
+          [{ content: 'OPPORTUNITIES', styles: { fillColor: [232, 240, 255], fontStyle: 'bold' } }, { content: 'THREATS', styles: { fillColor: [255, 248, 232], fontStyle: 'bold' } }],
+          [data.swot.opportunities.map((o: string) => `• ${o}`).join('\n'), data.swot.threats.map((t: string) => `• ${t}`).join('\n')]
+        ],
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 5 },
+        columnStyles: { 0: { cellWidth: (pageWidth - 40) / 2 }, 1: { cellWidth: (pageWidth - 40) / 2 } },
+        margin: { left: 20, right: 20 }
+      });
+
+      yPos = (doc as any).lastAutoTable.finalY + 20;
+
+      // -- Topics to Master --
+      if (yPos > doc.internal.pageSize.height - 40) { doc.addPage(); yPos = 20; }
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TOPICS TO MASTER', 20, yPos);
+      yPos += 8;
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Topic', 'Reason for Struggle', 'Mastery Recommendation']],
+        body: data.focus_topics.map((item: any) => [item.topic, item.reason, item.recommendation]),
+        theme: 'striped',
+        headStyles: { fillColor: [13, 17, 23] },
+        styles: { fontSize: 9 },
+        margin: { left: 20, right: 20 }
+      });
+      yPos = (doc as any).lastAutoTable.finalY + 15;
+
+      // -- Study Techniques --
+      if (data.study_techniques && data.study_techniques.length > 0) {
+        if (yPos > doc.internal.pageSize.height - 40) { doc.addPage(); yPos = 20; }
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('RECOMMENDED STUDY TECHNIQUES', 20, yPos);
+        yPos += 8;
+
+        autoTable(doc, {
+          startY: yPos,
+          head: [['Method', 'How to Apply It']],
+          body: data.study_techniques.map((s: any) => [s.method, s.description]),
+          theme: 'grid',
+          headStyles: { fillColor: [0, 102, 204] },
+          styles: { fontSize: 9 },
+          margin: { left: 20, right: 20 }
+        });
+        yPos = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // -- Recovery Plan --
+      if (data.recovery_plan && data.recovery_plan.length > 0) {
+        if (yPos > doc.internal.pageSize.height - 40) { doc.addPage(); yPos = 20; }
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('PERSONAL 14-DAY RECOVERY PLAN', 20, yPos);
+        yPos += 8;
+
+        autoTable(doc, {
+          startY: yPos,
+          head: [['Timeline', 'Action Item']],
+          body: data.recovery_plan.map((r: any) => [r.day_range, r.task]),
+          theme: 'striped',
+          styles: { fontSize: 9 },
+          margin: { left: 20, right: 20 }
+        });
+        yPos = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // -- Footer --
+      const totalPages = doc.internal.pages.length - 1;
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        const footerName = submission.marked_by_name || submission.marked_by_email || 'Lecturer';
+        const footerText = `Reviewed by ${footerName} - Page ${i} of ${totalPages}`;
+        doc.text(footerText, pageWidth / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+      }
+
+      doc.save(`Focus_Report_${submission.students.student_number}_${submission.exams.title}.pdf`);
+      showToast('Focus Report generated successfully!', 'success');
+    } catch (err: any) {
+      console.error('Error generating focus report:', err);
+      showToast(err.message || 'Failed to generate report.', 'error');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   const isPassed = percentage >= 50;
   const isViolation = !!submission.marking_details?.violation;
 
@@ -387,6 +542,14 @@ ${JSON.stringify(promptData, null, 2)}
             >
               {isAutomarking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
               Automark with AI
+            </button>
+            <button
+              onClick={handleGenerateFocusReport}
+              disabled={isGeneratingReport || !submission.graded || isAutomarking}
+              className="flex items-center gap-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 px-4 py-2 rounded-lg font-bold text-sm hover:bg-blue-500/20 hover:border-blue-500/40 transition-all shadow-[0_0_16px_rgba(59,130,246,0.1)] disabled:opacity-50"
+            >
+              {isGeneratingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              Focus Report
             </button>
             <button
               onClick={handleSave}
@@ -617,10 +780,10 @@ ${JSON.stringify(promptData, null, 2)}
                       <div>
                         <h4 className="text-[10px] font-bold text-[#00E5FF]/40 uppercase tracking-[0.15em] mb-2 flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#00E5FF]/30 inline-block" />
-                          {isMCQ ? 'Correct Answer' : 'Model Answer'}
+                          {isMCQ ? 'Correct Answer' : 'Answer'}
                         </h4>
                         <pre className="p-4 bg-[#00E5FF]/[0.04] border border-[#00E5FF]/10 rounded-xl font-mono text-sm text-[#00E5FF]/80 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-52">
-                          {q.correct_answer || '(No model answer provided)'}
+                          {q.correct_answer || '(No answer provided)'}
                         </pre>
                       </div>
                     </div>

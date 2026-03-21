@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   BookOpen, Clock, ChevronRight, ArrowRight,
-  LogOut, GraduationCap, ShieldCheck, CheckCircle2, AlertCircle, Loader2
+  LogOut, GraduationCap, ShieldCheck, AlertCircle, Loader2
 } from 'lucide-react';
 import { useNotification } from '../components/NotificationProvider';
 
@@ -340,17 +340,10 @@ const StudentDashboard: React.FC = () => {
                               <div className="text-[10px] text-panel/40 font-bold uppercase tracking-widest mt-1">Grade</div>
                               
                               <div className="mt-4 flex flex-col items-end gap-2">
-                                {sub.is_manual ? (
                                   <div className="flex items-center gap-1.5 text-accent font-bold text-xs bg-accent/10 px-2 py-1 rounded-lg">
                                     <ShieldCheck className="w-3.5 h-3.5" />
                                     Lecturer Marked
                                   </div>
-                                ) : (
-                                  <div className="flex items-center gap-1.5 text-green-500 font-bold text-xs bg-green-500/10 px-2 py-1 rounded-lg">
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    AI Marked
-                                  </div>
-                                )}
                                 
                                 <button
                                   onClick={(e) => {

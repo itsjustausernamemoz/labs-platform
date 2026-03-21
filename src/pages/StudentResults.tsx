@@ -5,8 +5,11 @@ import {
   Trophy, CheckCircle2, AlertTriangle, XCircle,
   ArrowLeft, GraduationCap, ShieldCheck,
   MessageSquare, Target, ChevronDown, ChevronUp,
-  Award, BookOpen, Zap
+  Award, BookOpen, FileText, Loader2
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { useNotification } from '../components/NotificationProvider';
 
 const StudentResults: React.FC = () => {
   const { submissionId } = useParams();
@@ -14,6 +17,8 @@ const StudentResults: React.FC = () => {
   const [questions, setQuestions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(new Set());
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const { showToast } = useNotification();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -46,6 +51,157 @@ const StudentResults: React.FC = () => {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  };
+
+  const handleGenerateFocusReport = async () => {
+    if (!submission) return;
+    setIsGeneratingReport(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-focus-report', {
+        body: { submissionId: submission.id }
+      });
+
+      if (error) throw error;
+
+      // PDF Generation logic
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.width;
+      
+      // -- Header --
+      doc.setFillColor(13, 17, 23);
+      doc.rect(0, 0, pageWidth, 40, 'F');
+      
+      doc.setTextColor(0, 229, 255);
+      doc.setFontSize(22);
+      doc.setFont('helvetica', 'bold');
+      doc.text('FOCUS REPORT', 20, 25);
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(10);
+      doc.text('DETAILED ACADEMIC PERFORMANCE ANALYSIS', 20, 32);
+      
+      // -- Student info --
+      doc.setTextColor(60, 60, 60);
+      doc.setFontSize(10);
+      doc.text(`EXAM: ${submission.exams?.title || 'Examination'}`, 20, 50);
+      doc.text(`DATE: ${new Date(submission.submitted_at || '').toLocaleDateString()}`, pageWidth - 20, 50, { align: 'right' });
+      doc.text(`SCORE: ${submission.score} / ${submission.total_marks} (${((submission.score / submission.total_marks) * 100).toFixed(1)}%)`, pageWidth - 20, 55, { align: 'right' });
+      
+      doc.setDrawColor(200, 200, 200);
+      doc.line(20, 60, pageWidth - 20, 60);
+
+      // -- Summary --
+      let yPos = 75;
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('OVERALL SUMMARY', 20, yPos);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      const summaryLines = doc.splitTextToSize(data.overall_summary, pageWidth - 40);
+      doc.text(summaryLines, 20, yPos + 8);
+      yPos += 15 + (summaryLines.length * 5);
+
+      // -- SWOT Analysis --
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('SWOT ANALYSIS', 20, yPos);
+      yPos += 10;
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [['S.W.O.T ANALYSIS', '']],
+        body: [
+          [{ content: 'STRENGTHS', styles: { fillColor: [232, 255, 232], fontStyle: 'bold' } }, { content: 'WEAKNESSES', styles: { fillColor: [255, 232, 232], fontStyle: 'bold' } }],
+          [data.swot.strengths.map((s: string) => `• ${s}`).join('\n'), data.swot.weaknesses.map((w: string) => `• ${w}`).join('\n')],
+          [{ content: 'OPPORTUNITIES', styles: { fillColor: [232, 240, 255], fontStyle: 'bold' } }, { content: 'THREATS', styles: { fillColor: [255, 248, 232], fontStyle: 'bold' } }],
+          [data.swot.opportunities.map((o: string) => `• ${o}`).join('\n'), data.swot.threats.map((t: string) => `• ${t}`).join('\n')]
+        ],
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 5 },
+        columnStyles: { 0: { cellWidth: (pageWidth - 40) / 2 }, 1: { cellWidth: (pageWidth - 40) / 2 } },
+        margin: { left: 20, right: 20 }
+      });
+
+      yPos = (doc as any).lastAutoTable.finalY + 20;
+
+      // -- Topics to Master --
+      if (yPos > doc.internal.pageSize.height - 40) { doc.addPage(); yPos = 20; }
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TOPICS TO MASTER', 20, yPos);
+      yPos += 8;
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Topic', 'Reason for Struggle', 'Mastery Recommendation']],
+        body: data.focus_topics.map((item: any) => [item.topic, item.reason, item.recommendation]),
+        theme: 'striped',
+        headStyles: { fillColor: [13, 17, 23] },
+        styles: { fontSize: 9 },
+        margin: { left: 20, right: 20 }
+      });
+      yPos = (doc as any).lastAutoTable.finalY + 15;
+
+      // -- Study Techniques --
+      if (data.study_techniques && data.study_techniques.length > 0) {
+        if (yPos > doc.internal.pageSize.height - 40) { doc.addPage(); yPos = 20; }
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('RECOMMENDED STUDY TECHNIQUES', 20, yPos);
+        yPos += 8;
+
+        autoTable(doc, {
+          startY: yPos,
+          head: [['Method', 'How to Apply It']],
+          body: data.study_techniques.map((s: any) => [s.method, s.description]),
+          theme: 'grid',
+          headStyles: { fillColor: [0, 102, 204] },
+          styles: { fontSize: 9 },
+          margin: { left: 20, right: 20 }
+        });
+        yPos = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // -- Recovery Plan --
+      if (data.recovery_plan && data.recovery_plan.length > 0) {
+        if (yPos > doc.internal.pageSize.height - 40) { doc.addPage(); yPos = 20; }
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('PERSONAL 14-DAY RECOVERY PLAN', 20, yPos);
+        yPos += 8;
+
+        autoTable(doc, {
+          startY: yPos,
+          head: [['Timeline', 'Action Item']],
+          body: data.recovery_plan.map((r: any) => [r.day_range, r.task]),
+          theme: 'striped',
+          styles: { fontSize: 9 },
+          margin: { left: 20, right: 20 }
+        });
+        yPos = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // -- Footer --
+      const totalPages = doc.internal.pages.length - 1;
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        const footerName = submission.marked_by_name || submission.marked_by_email || 'Lecturer';
+        const footerText = `Reviewed by ${footerName} - Page ${i} of ${totalPages}`;
+        doc.text(footerText, pageWidth / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+      }
+
+      doc.save(`Focus_Report_${submission.exams?.title || 'Exam'}.pdf`);
+      showToast('Focus Report generated successfully!', 'success');
+    } catch (err: any) {
+      console.error('Error generating focus report:', err);
+      showToast(err.message || 'Failed to generate report.', 'error');
+    } finally {
+      setIsGeneratingReport(false);
+    }
   };
 
   if (isLoading) {
@@ -129,20 +285,30 @@ const StudentResults: React.FC = () => {
 
           {/* Marking status */}
           <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-center gap-4 text-sm">
-            {submission.is_manual ? (
-              <span className="text-[#00E5FF] font-bold flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4" /> Lecturer Marked
-              </span>
-            ) : (
-              <span className="text-green-400 font-bold flex items-center gap-1.5">
-                <Zap className="w-4 h-4" /> AI Marked
-              </span>
-            )}
+            <span className="text-green-400 font-bold flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4" /> Lecturer Marked
+            </span>
             {(submission.marked_by_name || submission.marked_by_email) && (
               <span className="text-white/30 text-xs italic">
                 by {submission.marked_by_name || submission.marked_by_email}
               </span>
             )}
+          </div>
+
+          {/* Focus Report Button */}
+          <div className="mt-8 flex justify-center">
+            <button
+              onClick={handleGenerateFocusReport}
+              disabled={isGeneratingReport}
+              className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-sm transition-all shadow-lg ${
+                isPassed 
+                ? 'bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20' 
+                : 'bg-[#00E5FF]/10 text-[#00E5FF] border border-[#00E5FF]/20 hover:bg-[#00E5FF]/20'
+              } disabled:opacity-50`}
+            >
+              {isGeneratingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              Pull Focus Report (PDF)
+            </button>
           </div>
         </div>
 
@@ -218,7 +384,7 @@ const StudentResults: React.FC = () => {
                         {q.correct_answer && (
                           <div>
                             <p className="text-[10px] text-green-400/50 uppercase tracking-[0.15em] font-bold mb-1.5 flex items-center gap-1">
-                              <CheckCircle2 className="w-2.5 h-2.5" /> {q.type === 'mcq' ? 'Answer' : 'Answer'}
+                              <CheckCircle2 className="w-2.5 h-2.5" /> Answer
                             </p>
                             <pre className="p-3 bg-green-500/[0.04] border border-green-500/15 rounded-xl font-mono text-xs text-green-300/70 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-48">
                               {q.correct_answer}

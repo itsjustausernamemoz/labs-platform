@@ -3,8 +3,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   Calendar, Search, FileEdit, Download, Trash2,
-  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle, XCircle
+  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle, XCircle, Loader2, Sparkles
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { useNotification } from '../components/NotificationProvider';
@@ -33,6 +35,7 @@ const Results: React.FC = () => {
   const [examTitle, setExamTitle] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isGeneratingClassReport, setIsGeneratingClassReport] = useState(false);
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { showToast, showConfirm } = useNotification();
@@ -178,6 +181,165 @@ const Results: React.FC = () => {
       console.error('Error fetching dashboard data:', err);
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleGenerateClassFocusReport = async () => {
+    if (!examId) return;
+    setIsGeneratingClassReport(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-class-focus-report', {
+        body: { examId }
+      });
+
+      if (error) throw error;
+
+      // PDF Generation logic
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.width;
+      
+      // -- Header --
+      doc.setFillColor(13, 17, 23); // Dark theme header
+      doc.rect(0, 0, pageWidth, 45, 'F');
+      
+      doc.setTextColor(0, 229, 255);
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CLASS FOCUS REPORT', 20, 25);
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(10);
+      doc.text('AGGREGATE ACADEMIC PERFORMANCE ANALYSIS', 20, 32);
+      
+      // -- Exam info --
+      doc.setTextColor(150, 150, 150);
+      doc.setFontSize(9);
+      doc.text(`EXAM: ${examTitle.toUpperCase()}`, 20, 55);
+      doc.text(`DATE: ${new Date().toLocaleDateString()}`, pageWidth - 20, 55, { align: 'right' });
+      doc.text(`TOTAL GRADED SUBMISSIONS: ${submissions.filter(s => s.graded).length}`, 20, 60);
+      doc.text(`CLASS AVERAGE: ${averageScore}%`, pageWidth - 20, 60, { align: 'right' });
+      
+      doc.setDrawColor(230, 230, 230);
+      doc.line(20, 65, pageWidth - 20, 65);
+
+      // -- Overall Summary --
+      let yPos = 80;
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('EXAM PERFORMANCE OVERVIEW', 20, yPos);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      const distributionLines = doc.splitTextToSize(data.distribution_analysis || '', pageWidth - 40);
+      if (distributionLines.length > 0) {
+        doc.text(distributionLines, 20, yPos + 8);
+        yPos += 15 + (distributionLines.length * 5);
+      }
+
+      const summaryLines = doc.splitTextToSize(data.overall_summary, pageWidth - 40);
+      doc.text(summaryLines, 20, yPos);
+      yPos += 10 + (summaryLines.length * 5);
+
+      // -- Class SWOT Analysis --
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PEDAGOGICAL SWOT ANALYSIS', 20, yPos);
+      yPos += 10;
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [['CLASS STRENGTHS', 'CLASS WEAKNESSES']],
+        body: [
+          [data.swot.strengths.map((s: string) => `• ${s}`).join('\n\n'), data.swot.weaknesses.map((w: string) => `• ${w}`).join('\n\n')],
+          [{ content: 'PEDAGOGICAL OPPORTUNITIES', styles: { fillColor: [232, 240, 255], fontStyle: 'bold' } }, { content: 'THREATS TO OUTCOMES', styles: { fillColor: [255, 248, 232], fontStyle: 'bold' } }],
+          [data.swot.opportunities.map((o: string) => `• ${o}`).join('\n\n'), data.swot.threats.map((t: string) => `• ${t}`).join('\n\n')]
+        ],
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 5, overflow: 'linebreak' },
+        columnStyles: { 0: { cellWidth: (pageWidth - 40) / 2 }, 1: { cellWidth: (pageWidth - 40) / 2 } },
+        margin: { left: 20, right: 20 }
+      });
+
+      yPos = (doc as any).lastAutoTable.finalY + 15;
+
+      // -- Common Misconceptions --
+      if (data.misconceptions && data.misconceptions.length > 0) {
+        if (yPos > doc.internal.pageSize.height - 40) { doc.addPage(); yPos = 20; }
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('COMMON MISCONCEPTIONS & CORRECTIONS', 20, yPos);
+        yPos += 8;
+
+        autoTable(doc, {
+          startY: yPos,
+          head: [['The Misconception', 'Correction Strategy']],
+          body: data.misconceptions.map((m: any) => [m.error, m.correction_strategy]),
+          theme: 'striped',
+          styles: { fontSize: 9 },
+          margin: { left: 20, right: 20 }
+        });
+        yPos = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // -- 4-Week Action Plan --
+      if (data.action_plan && data.action_plan.length > 0) {
+        if (yPos > doc.internal.pageSize.height - 60) { doc.addPage(); yPos = 20; }
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('4-WEEK PEDAGOGICAL ACTION PLAN', 20, yPos);
+        yPos += 8;
+
+        autoTable(doc, {
+          startY: yPos,
+          head: [['Week', 'Focus Area', 'Recommended Activity']],
+          body: data.action_plan.map((a: any) => [`Week ${a.week}`, a.focus, a.activity]),
+          theme: 'grid',
+          headStyles: { fillColor: [0, 102, 204] },
+          styles: { fontSize: 9 },
+          margin: { left: 20, right: 20 }
+        });
+        yPos = (doc as any).lastAutoTable.finalY + 15;
+      }
+
+      // -- Priority Re-teaching Topics --
+      if (yPos > doc.internal.pageSize.height - 60) {
+        doc.addPage();
+        yPos = 20;
+      }
+
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PRIORITY RE-TEACHING AREAS', 20, yPos);
+      yPos += 8;
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [['Topic', 'Primary Reason', 'Classroom Activity Suggestion']],
+        body: data.re_teaching_topics.map((item: any) => [item.topic, item.reason, item.activity_suggestion]),
+        theme: 'striped',
+        headStyles: { fillColor: [13, 17, 23] },
+        styles: { fontSize: 9, cellPadding: 4 },
+        margin: { left: 20, right: 20 }
+      });
+
+      // -- Footer --
+      const totalPages = doc.internal.pages.length - 1;
+      const lecturerName = submissions.length > 0 ? (submissions[0].marked_by_name || submissions[0].marked_by_email || 'Lecturer') : 'Lecturer';
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150);
+        doc.text(`Aggregate Analysis by ${lecturerName} - Page ${i} of ${totalPages}`, pageWidth / 2, doc.internal.pageSize.height - 10, { align: 'center' });
+      }
+
+      doc.save(`Class_Focus_Report_${examTitle.replace(/\s+/g, '_')}.pdf`);
+      showToast('Class Focus Report generated successfully!', 'success');
+    } catch (err: any) {
+      console.error('Error generating class focus report:', err);
+      showToast(err.message || 'Failed to generate class report.', 'error');
+    } finally {
+      setIsGeneratingClassReport(false);
     }
   };
 
@@ -564,6 +726,17 @@ const Results: React.FC = () => {
                   Download Script
                 </button>
               )}
+              {activeTab === 'submissions' && (
+                <button
+                  onClick={handleGenerateClassFocusReport}
+                  disabled={isGeneratingClassReport || submissions.filter(s => s.graded).length === 0}
+                  className="flex items-center justify-center gap-2 bg-accent text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-accent/90 transition-all disabled:opacity-50 shadow-sm"
+                  title="Generate Aggregate Focus Report for the entire class"
+                >
+                  {isGeneratingClassReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  Class Focus Report
+                </button>
+              )}
             </div>
           </div>
 
@@ -842,7 +1015,3 @@ const Results: React.FC = () => {
 };
 
 export default Results;
-
-const Loader2 = ({ className }: { className?: string }) => (
-  <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-);
