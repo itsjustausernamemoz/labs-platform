@@ -9,6 +9,7 @@ import LecturerSignup from './pages/LecturerSignup';
 import LecturerDashboard from './pages/LecturerDashboard';
 import Results from './pages/Results';
 import SubmissionReview from './pages/SubmissionReview';
+import ResetPassword from './pages/ResetPassword';
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
           <Route path="/lecturer/dashboard" element={<LecturerDashboard />} />
           <Route path="/lecturer/results/:examId" element={<Results />} />
           <Route path="/lecturer/review/:submissionId" element={<SubmissionReview />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

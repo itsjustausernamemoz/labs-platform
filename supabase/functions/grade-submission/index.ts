@@ -14,9 +14,8 @@ serve(async (req) => {
   try {
     const { submissionId, prompt } = await req.json()
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
     
-    console.log(`GEMINI_API_KEY present: ${!!geminiApiKey}`);
-
     if (!geminiApiKey) {
       return new Response(JSON.stringify({ 
         error: 'Missing GEMINI_API_KEY. Please set this in Supabase Dashboard > Settings > Edge Functions > Secrets.' 
@@ -26,26 +25,79 @@ serve(async (req) => {
       })
     }
 
-    // If a prompt is provided, we act as a secure proxy for the grading request
-    if (prompt) {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiApiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1 }
-        })
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return new Response(JSON.stringify({ error: `Gemini API error: ${errorText}` }), {
-          status: response.status,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    const callAiWithFallback = async (promptText: string) => {
+      // 1. Try Gemini
+      try {
+        const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiApiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: promptText }] }],
+            generationConfig: { temperature: 0.1 }
+          })
         });
+
+        if (geminiRes.ok) {
+          console.log('Gemini call successful');
+          return await geminiRes.json();
+        }
+
+        console.warn(`Gemini failed with status ${geminiRes.status}`);
+        
+        // If not a retryable error or no fallback key, throw
+        if (![429, 500, 502, 503, 504].includes(geminiRes.status) || !openaiApiKey) {
+          const errorText = await geminiRes.text();
+          throw new Error(`Gemini Error (${geminiRes.status}): ${errorText}`);
+        }
+      } catch (err) {
+        if (!openaiApiKey) throw err;
+        console.error('Gemini exception, trying OpenAI fallback:', err);
       }
 
-      const data = await response.json();
+      // 2. Fallback to OpenAI (ChatGPT)
+      if (openaiApiKey) {
+        console.log('Attempting OpenAI Fallback...');
+        const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${openaiApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              { role: 'user', content: promptText }
+            ],
+            temperature: 0.1
+          })
+        });
+
+        if (!openaiRes.ok) {
+          const errorText = await openaiRes.text();
+          throw new Error(`Both Gemini and OpenAI failed. OpenAI Error (${openaiRes.status}): ${errorText}`);
+        }
+
+        const openaiData = await openaiRes.json();
+        const text = openaiData?.choices?.[0]?.message?.content || '';
+        
+        // Map OpenAI response to Gemini format for frontend compatibility
+        return {
+          candidates: [
+            {
+              content: {
+                parts: [{ text: text }]
+              }
+            }
+          ]
+        };
+      }
+      
+      throw new Error('All AI providers failed or were unavailable.');
+    };
+
+    // If a prompt is provided, we act as a secure proxy for the grading request
+    if (prompt) {
+      const data = await callAiWithFallback(prompt);
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -98,7 +150,7 @@ serve(async (req) => {
           continue
         }
 
-        // Use Gemini to grade structured questions
+        // Use AI with Fallback to grade structured questions
         const gradingPrompt = `
           Grade the student's answer against the model answer.
           Question: ${question.question_text}
@@ -109,19 +161,7 @@ serve(async (req) => {
           Return ONLY a JSON object: { "awarded_marks": number, "feedback": "string" }
         `
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiApiKey}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{ text: gradingPrompt }]
-            }]
-          }),
-        })
-
-        const result = await response.json()
+        const result = await callAiWithFallback(gradingPrompt)
         const content = result.candidates[0].content.parts[0].text
         const jsonMatch = content.match(/\{.*\}/s)
         const grading = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content)

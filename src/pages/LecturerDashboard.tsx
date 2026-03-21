@@ -5,7 +5,7 @@ import {
   Plus, FileUp, Trash2, Eye, EyeOff,
   BarChart3, LogOut, Loader2, FileText,
   Save, Edit3, UserPlus, ShieldCheck, Download,
-  User, X
+  User, X, Lock
 } from 'lucide-react';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -75,6 +75,9 @@ const LecturerDashboard: React.FC = () => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   
   const navigate = useNavigate();
   const { showToast, showConfirm } = useNotification();
@@ -136,6 +139,32 @@ const LecturerDashboard: React.FC = () => {
       showToast(err.message, 'error');
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (newPassword.length < 6) {
+      showToast('Password must be at least 6 characters', 'error');
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      showToast('Passwords do not match', 'error');
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      if (error) throw error;
+      showToast('Password updated successfully!', 'success');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (err: any) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsUpdatingPassword(false);
     }
   };
 
@@ -615,22 +644,62 @@ const LecturerDashboard: React.FC = () => {
                   />
                   <p className="text-[10px] text-slate-400 mt-2 italic">Email cannot be changed as it is linked to your account.</p>
                 </div>
+                <div className="border-t border-slate-100 pt-6">
+                  <h3 className="text-sm font-bold text-primary mb-4 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4" />
+                    Security
+                  </h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">New Password</label>
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary transition-all"
+                        placeholder="Min. 6 characters"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Confirm New Password</label>
+                      <input
+                        type="password"
+                        value={confirmNewPassword}
+                        onChange={(e) => setConfirmNewPassword(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-primary transition-all"
+                        placeholder="Repeat new password"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleUpdatePassword}
+                      disabled={isUpdatingPassword || !newPassword}
+                      className="w-full bg-slate-800 text-white py-2 rounded-lg text-sm font-bold hover:bg-slate-900 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                    >
+                      {isUpdatingPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+                      Update Password
+                    </button>
+                    {newPassword && newPassword.length < 6 && (
+                      <p className="text-[10px] text-red-500 italic text-center">Password must be at least 6 characters</p>
+                    )}
+                  </div>
+                </div>
                 
-                <div className="flex gap-3 pt-4">
+                <div className="flex gap-3 pt-6 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => setIsEditingProfile(false)}
-                    className="flex-1 px-6 py-3 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition-all"
+                    className="flex-1 px-6 py-3 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition-all text-sm"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSavingProfile}
-                    className="flex-1 bg-primary text-white px-6 py-3 rounded-xl font-bold hover:bg-primary/95 transition-all shadow-lg flex items-center justify-center gap-2"
+                    className="flex-1 bg-primary text-white px-6 py-3 rounded-xl font-bold hover:bg-primary/95 transition-all shadow-lg flex items-center justify-center gap-2 text-sm"
                   >
                     {isSavingProfile ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                    Save Changes
+                    Save Info
                   </button>
                 </div>
               </form>

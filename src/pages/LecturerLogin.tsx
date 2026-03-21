@@ -8,6 +8,7 @@ const LecturerLogin: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -27,6 +28,28 @@ const LecturerLogin: React.FC = () => {
       setError(err.message || 'Invalid email or password');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setError('Please enter your email address first');
+      return;
+    }
+    setIsResetting(true);
+    setError('');
+
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (resetError) throw resetError;
+      setError('Password reset link sent! Please check your email.');
+    } catch (err: any) {
+      setError(err.message || 'Failed to send reset link');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -51,14 +74,24 @@ const LecturerLogin: React.FC = () => {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-accent transition-all"
+                className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-accent transition-all text-white"
                 placeholder="lecturer@university.edu"
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-panel/80">Password</label>
+            <div className="flex justify-between items-center">
+              <label className="block text-sm font-medium text-panel/80">Password</label>
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={isResetting}
+                className="text-xs text-accent hover:underline disabled:opacity-50"
+              >
+                {isResetting ? 'Sending...' : 'Forgot your password?'}
+              </button>
+            </div>
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-panel/40" />
               <input
@@ -66,13 +99,17 @@ const LecturerLogin: React.FC = () => {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-accent transition-all"
+                className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-accent transition-all text-white"
                 placeholder="••••••••"
               />
             </div>
           </div>
 
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+          {error && (
+            <p className={`text-sm text-center ${error.includes('sent') ? 'text-green-400' : 'text-red-500'}`}>
+              {error}
+            </p>
+          )}
 
           <button
             type="submit"
