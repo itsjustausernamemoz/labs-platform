@@ -132,12 +132,14 @@ serve(async (req) => {
     let totalScore = 0
     const studentAnswers = submission.answers || {}
     const markingDetails: Record<string, any> = {}
+    const structuredToGrade: any[] = []
 
+    // 1. Instant Grade MCQs and Collect Structured
     for (const question of questions) {
-      const studentAnswer = studentAnswers[question.id] || ''
+      const studentAnswer = (studentAnswers[question.id] || '').toString().trim();
 
       if (question.type === 'mcq') {
-        const isCorrect = studentAnswer.toUpperCase() === question.correct_answer.toUpperCase()
+        const isCorrect = studentAnswer.toUpperCase() === (question.correct_answer || '').toString().toUpperCase()
         const awarded = isCorrect ? question.marks : 0
         totalScore += awarded
         markingDetails[question.id] = {
@@ -145,33 +147,69 @@ serve(async (req) => {
           feedback: isCorrect ? 'Correct' : `Incorrect. Correct answer: ${question.correct_answer}`
         }
       } else if (question.type === 'structured') {
-        if (!studentAnswer.trim()) {
+        if (!studentAnswer) {
           markingDetails[question.id] = { awarded_marks: 0, feedback: 'No answer provided' }
           continue
         }
+        structuredToGrade.push({
+          id: question.id,
+          question: question.question_text,
+          model_answer: question.correct_answer,
+          student_answer: studentAnswer,
+          max_marks: question.marks
+        });
+      }
+    }
 
-        // Use AI with Fallback to grade structured questions
-        const gradingPrompt = `
-          Grade the student's answer against the model answer.
-          Question: ${question.question_text}
-          Model Answer: ${question.correct_answer}
-          Student Answer: ${studentAnswer}
-          Maximum Marks: ${question.marks}
+    // 2. Batched Grade Structured Questions
+    if (structuredToGrade.length > 0) {
+      const batchPrompt = `
+        You are an expert Academic Marker. Your task is to mark the following structured questions for the exam: "${submission.exams.title}".
+        You must access each entry in the provided JSON to ensure no question is skipped.
 
-          Return ONLY a JSON object: { "awarded_marks": number, "feedback": "string" }
-        `
+        JSON INPUT (Questions & Student Answers):
+        ${JSON.stringify(structuredToGrade, null, 2)}
 
-        const result = await callAiWithFallback(gradingPrompt)
+        CRITICAL INSTRUCTIONS:
+        1. Access every single question ID in the JSON input above.
+        2. Strictly compare the [student_answer] against the [model_answer].
+        3. Do not skip any question from the list. 
+        4. For each ID, provide an "awarded_marks" (integer) and "feedback" (specific to the answer).
+        5. The "awarded_marks" must be between 0 and the "max_marks" for that question.
+
+        RETURN FORMAT:
+        You must return ONLY a JSON response where each key corresponds to the Question ID:
+        {
+          "question_id_1": { "awarded_marks": X, "feedback": "..." },
+          "question_id_2": { "awarded_marks": Y, "feedback": "..." }
+        }
+      `;
+
+      try {
+        const result = await callAiWithFallback(batchPrompt)
         const content = result.candidates[0].content.parts[0].text
         const jsonMatch = content.match(/\{.*\}/s)
-        const grading = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content)
+        const batchedGrading = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content)
 
-        const awarded = Math.min(grading.awarded_marks, question.marks)
-        totalScore += awarded
-        markingDetails[question.id] = {
-          awarded_marks: awarded,
-          feedback: grading.feedback
-        }
+        // Merge batched results into markingDetails
+        structuredToGrade.forEach(q => {
+          const grading = batchedGrading[q.id];
+          if (grading) {
+            const awarded = Math.min(grading.awarded_marks || 0, q.max_marks);
+            totalScore += awarded;
+            markingDetails[q.id] = {
+              awarded_marks: awarded,
+              feedback: grading.feedback || 'Marked'
+            };
+          } else {
+            // Safety fallback if AI skips a key
+            console.warn(`AI skipped question ID: ${q.id}. Defaulting to 0.`);
+            markingDetails[q.id] = { awarded_marks: 0, feedback: 'Question was skipped by AI evaluator.' };
+          }
+        });
+      } catch (aiErr) {
+        console.error('Batched AI marking failed:', aiErr);
+        throw new Error('Automated marking failed. Please try again or mark manually.');
       }
     }
 

@@ -53,6 +53,7 @@ const SubmissionReview: React.FC = () => {
   const [violationCount, setViolationCount] = useState(0);
   const [collapsedQuestions, setCollapsedQuestions] = useState<Set<string>>(new Set());
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [markingSingleId, setMarkingSingleId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSubmissionData();
@@ -152,7 +153,7 @@ Please accurately and fairly grade the following student answers against the max
 2. **Conceptual Evaluation:** For structured/essay questions, look for the core concepts described in the model_answer. If the student accurately describes the concept in their own words, award full marks.
 3. **Partial Marks:** Award partial marks (in increments of 0.5) for partially correct answers that show some understanding. 
 4. **No Binary Marking:** Avoid 0 or Max marking for structured questions unless the answer is completely wrong/missing or perfectly correct.
-5. **Constructive Feedback:** Provide a constructive, concise sentence of feedback for EVERY question. Address the student directly (e.g., "You correctly identified..., but forgot to mention...").
+5. **Constructive Feedback:** Provide 2-3 sentences of constructive feedback for EVERY question. Address the student directly (e.g., "You correctly identified..., but forgot to mention...").
 
 Return exactly and strictly a raw JSON object with NO markdown formatting, NO backticks, NO "json" wrapping. The object must map the question object "id" to its respective grading data. Example output format:
 {
@@ -226,6 +227,59 @@ ${JSON.stringify(promptData, null, 2)}
       showToast(`Automarking failed: ${err.message}`, 'error');
     } finally {
       setIsAutomarking(false);
+    }
+  };
+
+  const handleMarkSingleQuestion = async (q: Question) => {
+    if (!submission) return;
+    setMarkingSingleId(q.id);
+    try {
+      const studentAnswer = submission.answers[q.id] || '(No answer provided)';
+      const promptText = `
+        You are a highly experienced academic examiner. Grade this specific question for the exam: "${submission.exams.title}".
+        
+        ### Grading Guidelines:
+        1. **Conceptual Evaluation:** Compare student_answer against model_answer. Award marks based on conceptual understanding.
+        2. **Partial Marks:** Award partial marks (increments of 0.5) if the student shows some knowledge but misses key points.
+        3. **Tone:** Address the student DIRECTLY using "You" (e.g., "You explained X well, but you missed the connection to Y").
+        4. **Depth:** Provide 2-3 sentences of constructive feedback that clearly explains the mark awarded.
+
+        Question: ${q.question_text}
+        Model Answer: ${q.correct_answer || 'Evaluate based on general knowledge.'}
+        Student Answer: ${studentAnswer}
+        Max Marks: ${q.marks}
+
+        Return exactly a JSON object: { "marks": number, "feedback": "string" }
+      `;
+
+      const { data, error } = await supabase.functions.invoke('grade-submission', {
+        body: { prompt: promptText }
+      });
+
+      if (error) throw error;
+
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) throw new Error('AI returned an empty response.');
+
+      const cleanJsonStr = rawText.replace(/^```json/g, '').replace(/^```/g, '').replace(/```$/g, '').trim();
+      const aiResult = JSON.parse(cleanJsonStr);
+
+      setOverrides({ ...overrides, [q.id]: Math.max(0, Math.min(q.marks, Number(aiResult.marks) || 0)) });
+      setFeedbackOverrides({ ...feedbackOverrides, [q.id]: aiResult.feedback || 'Marked by AI.' });
+      showToast('Question marked by AI!', 'success');
+      
+      // Ensure question is expanded
+      setCollapsedQuestions(prev => {
+        const next = new Set(prev);
+        next.delete(q.id);
+        return next;
+      });
+
+    } catch (err: any) {
+      console.error('Single question marking error:', err);
+      showToast(`AI Marking failed: ${err.message}`, 'error');
+    } finally {
+      setMarkingSingleId(null);
     }
   };
 
@@ -715,6 +769,14 @@ ${JSON.stringify(promptData, null, 2)}
                     {/* Quick mark buttons */}
                     <div className="hidden md:flex items-center gap-1">
                       <button
+                        onClick={(e) => { e.stopPropagation(); handleMarkSingleQuestion(q); }}
+                        disabled={markingSingleId === q.id}
+                        className={`w-7 h-7 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-all flex items-center justify-center ${markingSingleId === q.id ? 'animate-pulse' : ''}`}
+                        title="Mark with AI"
+                      >
+                        {markingSingleId === q.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      </button>
+                      <button
                         onClick={(e) => { e.stopPropagation(); handleZeroMark(q.id); }}
                         className="w-7 h-7 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all text-xs font-bold flex items-center justify-center"
                         title="Award 0"
@@ -818,7 +880,7 @@ ${JSON.stringify(promptData, null, 2)}
                       {/* Quick mark row */}
                       <div>
                         <h4 className="text-[10px] font-bold text-white/30 uppercase tracking-[0.15em] mb-2">Quick Mark</h4>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           {[0, 0.5, 1].concat(
                             q.marks > 1 ? Array.from({ length: Math.min(q.marks - 1, 5) }, (_, i) => Math.round((q.marks * (i + 1)) / 6 * 2) / 2) : []
                           ).concat([q.marks]).filter((v, i, arr) => arr.indexOf(v) === i && v <= q.marks).sort((a, b) => a - b).map(val => (
@@ -833,6 +895,15 @@ ${JSON.stringify(promptData, null, 2)}
                               {val}
                             </button>
                           ))}
+                          <div className="w-px h-4 bg-white/10 mx-1" />
+                          <button
+                            onClick={() => handleMarkSingleQuestion(q)}
+                            disabled={markingSingleId === q.id}
+                            className="flex items-center gap-1.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-purple-500/20 transition-all disabled:opacity-50"
+                          >
+                            {markingSingleId === q.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                            AI Mark
+                          </button>
                         </div>
                       </div>
 
