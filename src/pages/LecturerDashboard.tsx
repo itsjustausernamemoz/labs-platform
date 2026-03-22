@@ -45,6 +45,7 @@ interface Question {
 interface ExamWithStats extends Exam {
   total_submissions: number;
   marked_submissions: number;
+  average_score?: number;
   lecturer_email?: string;
   lecturer_id: string;
 }
@@ -189,7 +190,7 @@ const LecturerDashboard: React.FC = () => {
       // when a large exam is running.
       const examsWithStats: ExamWithStats[] = await Promise.all(
         (ownExams || []).map(async (exam) => {
-          const [totalResult, gradedResult] = await Promise.all([
+          const [totalResult, gradedResult, submissionsResult] = await Promise.all([
             supabase
               .from('submissions')
               .select('*', { count: 'exact', head: true })
@@ -199,12 +200,23 @@ const LecturerDashboard: React.FC = () => {
               .select('*', { count: 'exact', head: true })
               .eq('exam_id', exam.id)
               .eq('graded', true),
+            supabase
+              .from('submissions')
+              .select('score, total_marks')
+              .eq('exam_id', exam.id)
+              .not('status', 'eq', 'draft')
           ]);
+
+          const subs = submissionsResult.data || [];
+          const avgScore = subs.length > 0
+            ? (subs.reduce((acc, curr) => acc + (curr.score / (curr.total_marks || 1)), 0) / subs.length * 100)
+            : 0;
 
           return {
             ...exam,
             total_submissions: totalResult.count ?? 0,
             marked_submissions: gradedResult.count ?? 0,
+            average_score: parseFloat(avgScore.toFixed(1))
           };
         })
       );
@@ -936,6 +948,12 @@ const LecturerDashboard: React.FC = () => {
                       <Clock className="w-3.5 h-3.5" />
                       {exam.duration_minutes}m
                     </div>
+                    {exam.average_score !== undefined && exam.total_submissions > 0 && (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-[10px] font-black uppercase tracking-widest leading-none">
+                        <BarChart3 className="w-3 h-3" />
+                        Avg: {exam.average_score}%
+                      </div>
+                    )}
                     <button 
                       onClick={() => regenerateEnrollmentCode(exam.id)}
                       className="flex items-center gap-2 px-2 py-1 bg-white/5 rounded-lg border border-white/5 hover:bg-accent/10 hover:border-accent/20 transition-all group/code"

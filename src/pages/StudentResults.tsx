@@ -37,6 +37,7 @@ const StudentResults: React.FC = () => {
           .eq('exam_id', sub.exam_id)
           .order('order_index');
         setQuestions(qs || []);
+        setExpandedQuestions(new Set((qs || []).map((q: any) => q.id))); // Show in full by default
         setIsLoading(false);
       } else {
         setTimeout(fetchContent, 3000);
@@ -229,9 +230,14 @@ const StudentResults: React.FC = () => {
   const totalAwarded = questions.reduce((acc, q) => acc + (submission.marking_details?.[q.id]?.awarded_marks ?? 0), 0);
 
   return (
-    <div className="min-h-screen bg-primary text-white font-sans">
+    <div className="min-h-screen bg-[#0A1024] text-white font-outfit pb-20">
+      {/* Dynamic Background */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-accent/10 rounded-full blur-[120px] animate-pulse" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '2s' }} />
+      </div>
       {/* ── Top Nav ── */}
-      <header className="sticky top-0 z-40 bg-primary/80 backdrop-blur-xl border-b border-white/[0.06] px-6 py-4">
+      <header className="sticky top-0 z-[100] bg-[#0A1024]/60 backdrop-blur-3xl border-b border-white/5 py-4">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <button
             onClick={() => navigate('/dashboard')}
@@ -251,7 +257,7 @@ const StudentResults: React.FC = () => {
       <main className="max-w-3xl mx-auto px-6 py-10">
 
         {/* ── Hero Score Card ── */}
-        <div className={`relative overflow-hidden rounded-3xl border bg-gradient-to-br ${gradeBg} p-8 mb-8 text-center`}>
+        <div className={`relative overflow-hidden rounded-[2.5rem] border bg-gradient-to-br ${gradeBg} p-12 mb-12 text-center shadow-2xl`}>
           {/* Decorative glow */}
           <div className="absolute inset-0 pointer-events-none">
             <div className={`absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full blur-3xl opacity-20 ${

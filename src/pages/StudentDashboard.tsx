@@ -330,24 +330,75 @@ const StudentDashboard: React.FC = () => {
           </div>
         )}
 
-        <section className="mt-24">
+        <section className="mt-16">
           <header className="mb-10 flex items-end justify-between">
             <div>
-              <h2 className="text-3xl font-black tracking-tight font-outfit">Results Archive</h2>
-              <p className="text-white/40">Your historical performance and feedback reports.</p>
+              <h2 className="text-3xl font-black tracking-tight font-outfit">Active Evaluations</h2>
+              <p className="text-white/40">Assessments submitted and awaiting lecturer verification.</p>
             </div>
             <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">
-              {submissions.length} Record{submissions.length !== 1 ? 's' : ''}
+              {submissions.filter(s => !s.graded).length} Record{submissions.filter(s => !s.graded).length !== 1 ? 's' : ''}
             </div>
           </header>
 
-          {submissions.length === 0 ? (
+          {submissions.filter(s => !s.graded).length === 0 ? (
             <div className="glass-panel rounded-3xl p-12 text-center border-dashed">
-              <p className="text-white/20 font-bold uppercase tracking-widest text-xs">No examination history found.</p>
+              <p className="text-white/20 font-bold uppercase tracking-widest text-xs">No evaluations in progress.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
-              {submissions.map((sub) => {
+              {submissions.filter(s => !s.graded).map((sub) => (
+                <div 
+                  key={sub.id}
+                  className="glass-panel p-6 md:p-8 rounded-[2rem] flex flex-col md:flex-row md:items-center justify-between gap-6 transition-all duration-300 opacity-80"
+                >
+                  <div className="flex items-center gap-6">
+                    <div className="w-14 h-14 rounded-2xl flex flex-col items-center justify-center shrink-0 shadow-lg bg-orange-500/10 text-orange-400 border border-orange-500/20">
+                      <div className="text-lg font-black leading-none"><Clock className="w-5 h-5"/></div>
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black mb-1 font-outfit text-white/80">
+                        {sub.exams?.title || (sub as any).exam?.title || 'Unknown Exam'}
+                      </h3>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] text-white/20 font-bold uppercase tracking-widest leading-none">Record PK-{sub.id.slice(0, 8)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center justify-between md:justify-end gap-8 border-t md:border-t-0 border-white/5 pt-4 md:pt-0">
+                    <div className="flex flex-col items-end">
+                      <div className="inline-flex items-center gap-3 px-4 py-2 bg-orange-500/10 border border-orange-500/20 rounded-2xl text-orange-400 font-bold text-sm">
+                        <span className="w-2 h-2 bg-orange-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.5)]"></span>
+                        Evaluation in Progress
+                      </div>
+                      <div className="text-[9px] text-white/20 font-bold uppercase tracking-[0.2em] mt-2 mr-1">Please check back soon</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="mt-24">
+          <header className="mb-10 flex items-end justify-between">
+            <div>
+              <h2 className="text-3xl font-black tracking-tight font-outfit">Completed Examinations</h2>
+              <p className="text-white/40">Your historical performance and verified feedback reports.</p>
+            </div>
+            <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">
+              {submissions.filter(s => s.graded).length} Record{submissions.filter(s => s.graded).length !== 1 ? 's' : ''}
+            </div>
+          </header>
+
+          {submissions.filter(s => s.graded).length === 0 ? (
+            <div className="glass-panel rounded-3xl p-12 text-center border-dashed">
+              <p className="text-white/20 font-bold uppercase tracking-widest text-xs">No verified history found.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {submissions.filter(s => s.graded).map((sub) => {
                 const isClickable = sub.graded;
                 return (
                   <div 
@@ -374,42 +425,32 @@ const StudentDashboard: React.FC = () => {
                     
                     <div className="flex items-center justify-between md:justify-end gap-8 border-t md:border-t-0 border-white/5 pt-4 md:pt-0">
                       <div className="text-right">
-                        {sub.graded ? (
-                          <div className="flex items-center gap-6">
-                            <div className="flex flex-col items-end">
-                              <div className="text-4xl font-black text-white tabular-nums leading-none tracking-tighter">
-                                {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}<span className="text-accent text-xl">%</span>
-                              </div>
-                              <div className="text-[9px] text-accent font-bold uppercase tracking-[0.2em] mt-1">Final Result</div>
+                        <div className="flex items-center gap-6">
+                          <div className="flex flex-col items-end">
+                            <div className="text-4xl font-black text-white tabular-nums leading-none tracking-tighter">
+                              {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}<span className="text-accent text-xl">%</span>
+                            </div>
+                            <div className="text-[9px] text-accent font-bold uppercase tracking-[0.2em] mt-1">Final Result</div>
+                          </div>
+                          
+                          <div className="hidden sm:flex flex-col items-end gap-2">
+                            <div className="flex items-center gap-1.5 text-[9px] text-accent font-black uppercase tracking-widest bg-accent/5 border border-accent/20 px-3 py-1.5 rounded-full">
+                              <ShieldCheck className="w-3 h-3" />
+                              Lecturer Marked
                             </div>
                             
-                            <div className="hidden sm:flex flex-col items-end gap-2">
-                                <div className="flex items-center gap-1.5 text-[9px] text-accent font-black uppercase tracking-widest bg-accent/5 border border-accent/20 px-3 py-1.5 rounded-full">
-                                  <ShieldCheck className="w-3 h-3" />
-                                  Lecturer Marked
-                                </div>
-                              
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate(`/exam/results/${sub.id}`);
-                                }}
-                                className="flex items-center gap-2 bg-white text-[#0A1024] px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent transition-all shadow-xl group-hover:scale-105"
-                              >
-                                Review
-                                <ArrowRight className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/exam/results/${sub.id}`);
+                              }}
+                              className="flex items-center gap-2 bg-white text-[#0A1024] px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent transition-all shadow-xl group-hover:scale-105"
+                            >
+                              Review
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
                           </div>
-                        ) : (
-                          <div className="flex flex-col items-end">
-                            <div className="inline-flex items-center gap-3 px-4 py-2 bg-orange-500/10 border border-orange-500/20 rounded-2xl text-orange-400 font-bold text-sm">
-                              <span className="w-2 h-2 bg-orange-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.5)]"></span>
-                              Evaluation in Progress
-                            </div>
-                            <div className="text-[9px] text-white/20 font-bold uppercase tracking-[0.2em] mt-2 mr-1">Please check back soon</div>
-                          </div>
-                        )}
+                        </div>
                       </div>
                       
                       {isClickable && (

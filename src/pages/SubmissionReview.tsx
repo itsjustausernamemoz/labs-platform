@@ -51,7 +51,7 @@ const SubmissionReview: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [violationCount, setViolationCount] = useState(0);
-  const [collapsedQuestions, setCollapsedQuestions] = useState<Set<string>>(new Set());
+  const [collapsedQuestions, setCollapsedQuestions] = useState<Set<string>>(new Set()); // Default to all expanded
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [markingSingleId, setMarkingSingleId] = useState<string | null>(null);
 
@@ -203,7 +203,7 @@ ${JSON.stringify(promptData, null, 2)}
       questions.forEach(q => {
         if (aiResults[q.id]) {
           newOverrides[q.id] = Math.max(0, Math.min(q.marks, Number(aiResults[q.id].marks) || 0));
-          newFeedback[q.id] = aiResults[q.id].feedback || 'Marked by AI.';
+          newFeedback[q.id] = aiResults[q.id].feedback || 'System verified.';
         }
       });
 
@@ -257,7 +257,7 @@ ${JSON.stringify(promptData, null, 2)}
       const aiResult = JSON.parse(cleanJsonStr);
 
       setOverrides({ ...overrides, [q.id]: Math.max(0, Math.min(q.marks, Number(aiResult.marks) || 0)) });
-      setFeedbackOverrides({ ...feedbackOverrides, [q.id]: aiResult.feedback || 'Marked by AI.' });
+      setFeedbackOverrides({ ...feedbackOverrides, [q.id]: aiResult.feedback || 'System verified.' });
       showToast('Question marked by AI!', 'success');
       
       // Ensure question is expanded
@@ -697,14 +697,27 @@ ${JSON.stringify(promptData, null, 2)}
                 {questions.length} Items Total
               </span>
             </div>
-            <div className="p-1 bg-white/5 rounded-xl border border-white/10 flex items-center gap-1">
+            <div className="flex items-center gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
+              <button 
+                onClick={() => setCollapsedQuestions(new Set())}
+                className="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/5 transition-all"
+              >
+                Expand All
+              </button>
+              <button 
+                onClick={() => setCollapsedQuestions(new Set(questions.map(q => q.id)))}
+                className="px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/5 transition-all"
+              >
+                Collapse All
+              </button>
+              <div className="w-px h-4 bg-white/10 mx-1" />
               <button 
                 onClick={handleAutomark}
                 disabled={isAutomarking}
-                className="flex items-center gap-2 px-6 py-2 rounded-lg bg-accent text-[#0A1024] font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all disabled:opacity-50"
+                className="flex items-center gap-2 px-6 py-1.5 rounded-lg bg-accent text-[#0A1024] font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all disabled:opacity-50"
               >
                 {isAutomarking ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                Batch AI Mark
+                Automark
               </button>
             </div>
           </div>
@@ -735,7 +748,7 @@ ${JSON.stringify(promptData, null, 2)}
                        {index + 1}
                      </div>
                      <div className="flex-1">
-                        <h4 className="text-xl font-black text-white leading-snug font-outfit mb-2 line-clamp-1">{q.question_text}</h4>
+                        <h4 className="text-xl font-black text-white leading-snug font-outfit mb-2">{q.question_text}</h4>
                         <div className="flex items-center gap-4">
                           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30">{q.type} Identification</span>
                           {q.type === 'mcq' && (

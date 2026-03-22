@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   Calendar, Search, FileEdit, Download, Trash2,
-  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle, Loader2, Sparkles
+  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle, Loader2, Sparkles, Filter
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -37,6 +37,7 @@ const Results: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isGeneratingClassReport, setIsGeneratingClassReport] = useState(false);
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
+  const [sortOption, setSortOption] = useState<'status-pending' | 'status-graded' | 'score-highest' | 'score-lowest' | 'name-asc' | 'name-desc'>('status-pending');
   const navigate = useNavigate();
   const { showToast, showConfirm } = useNotification();
 
@@ -568,13 +569,44 @@ const Results: React.FC = () => {
       );
     });
 
-    return Object.entries(groups).map(([id, data]) => ({
+    const filteredGroups = Object.entries(groups).map(([id, data]) => ({
       student_id: id,
       ...data
     })).filter(group => 
       group.student.student_number.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [submissions, searchTerm]);
+
+    return filteredGroups.sort((a, b) => {
+      const latestA = a.submissions[0];
+      const latestB = b.submissions[0];
+
+      const scoreA = latestA.total_marks > 0 ? (latestA.score / latestA.total_marks) : 0;
+      const scoreB = latestB.total_marks > 0 ? (latestB.score / latestB.total_marks) : 0;
+      
+      const isPendingA = !latestA.graded;
+      const isPendingB = !latestB.graded;
+
+      switch (sortOption) {
+        case 'status-pending':
+          if (isPendingA && !isPendingB) return -1;
+          if (!isPendingA && isPendingB) return 1;
+          return a.student.student_number.localeCompare(b.student.student_number);
+        case 'status-graded':
+          if (!isPendingA && isPendingB) return -1;
+          if (isPendingA && !isPendingB) return 1;
+          return a.student.student_number.localeCompare(b.student.student_number);
+        case 'score-highest':
+          return scoreB - scoreA;
+        case 'score-lowest':
+          return scoreA - scoreB;
+        case 'name-desc':
+          return b.student.student_number.localeCompare(a.student.student_number);
+        case 'name-asc':
+        default:
+          return a.student.student_number.localeCompare(b.student.student_number);
+      }
+    });
+  }, [submissions, searchTerm, sortOption]);
 
   const averageScore = submissions.filter(s => s.status === 'submitted').length > 0
     ? (submissions.filter(s => s.status === 'submitted').reduce((acc, curr) => acc + (curr.score / (curr.total_marks || 1)), 0) / submissions.filter(s => s.status === 'submitted').length * 100).toFixed(1)
@@ -621,7 +653,7 @@ const Results: React.FC = () => {
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/10 rounded-full blur-[120px] animate-pulse" />
       </div>
 
-      <nav className="sticky top-0 z-[100] bg-[#0A1024]/80 backdrop-blur-xl border-b border-white/5 py-4">
+      <nav className="sticky top-0 z-[100] bg-[#0A1024]/60 backdrop-blur-3xl border-b border-white/5 py-4">
         <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
           <button
             onClick={() => navigate('/lecturer/dashboard')}
@@ -697,6 +729,25 @@ const Results: React.FC = () => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-12 pr-6 py-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-all text-sm font-bold w-full sm:w-64 placeholder:text-white/10"
                 />
+              </div>
+
+              <div className="relative group/sort hidden sm:block">
+                <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-hover/sort:text-accent transition-colors pointer-events-none" />
+                <select
+                  value={sortOption}
+                  onChange={(e) => setSortOption(e.target.value as any)}
+                  className="pl-11 pr-10 py-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-all text-[11px] font-black uppercase tracking-widest text-white cursor-pointer appearance-none hover:bg-white/10 w-full sm:w-auto"
+                >
+                  <option value="status-pending" className="bg-[#0A1024] text-white">Review Required First</option>
+                  <option value="name-asc" className="bg-[#0A1024] text-white">Student No. (A-Z)</option>
+                  <option value="name-desc" className="bg-[#0A1024] text-white">Student No. (Z-A)</option>
+                  <option value="status-graded" className="bg-[#0A1024] text-white">Verified First</option>
+                  <option value="score-highest" className="bg-[#0A1024] text-white">Score: Highest First</option>
+                  <option value="score-lowest" className="bg-[#0A1024] text-white">Score: Lowest First</option>
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <ChevronRight className="w-4 h-4 text-white/20 rotate-90" />
+                </div>
               </div>
               
               <div className="flex gap-3">
@@ -837,6 +888,7 @@ const Results: React.FC = () => {
                                 ? 'bg-green-500/10 text-green-400 border-green-500/20' 
                                 : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
                           }`}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse mr-2" />
                             {latest.status === 'draft' ? 'At Work' : latest.graded ? 'Verified' : 'Review Required'}
                           </span>
                         </div>
