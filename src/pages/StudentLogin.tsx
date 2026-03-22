@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { GraduationCap, ArrowRight } from 'lucide-react';
+import { GraduationCap, ArrowRight, Loader2 } from 'lucide-react';
 
 const StudentLogin: React.FC = () => {
   const [studentNumber, setStudentNumber] = useState('');
@@ -49,53 +49,72 @@ const StudentLogin: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-primary">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-accent/10 rounded-2xl mb-6">
-            <GraduationCap className="w-10 h-10 text-accent" />
-          </div>
-          <h1 className="text-4xl font-bold mb-2">SecureLab</h1>
-          <p className="text-panel/60">Enter your student number to begin</p>
-        </div>
+    <div className="min-h-screen flex items-center justify-center p-6 bg-[#0A1024] relative overflow-hidden">
+      {/* Decorative Orbs */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-accent/10 rounded-full blur-[120px] animate-float" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 rounded-full blur-[120px] animate-float" style={{ animationDelay: '-3s' }} />
 
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-panel/80 mb-2">Student Number</label>
-            <input
-              type="text"
-              required
-              value={studentNumber}
-              onChange={(e) => setStudentNumber(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-accent transition-all text-lg"
-              placeholder="e.g. 20240001"
-            />
+      <div className="max-w-md w-full relative z-10">
+        <div className="glass-panel rounded-[2.5rem] p-10 md:p-12">
+          <div className="text-center mb-10">
+            <div className="inline-flex items-center justify-center w-20 h-20 bg-accent/10 rounded-[2.5rem] mb-6 shadow-lg shadow-accent/20 animate-float">
+              <GraduationCap className="w-10 h-10 text-accent" />
+            </div>
+            <h1 className="text-4xl font-black mb-3 tracking-tight text-white font-outfit">SecureLab</h1>
+            <p className="text-white/40 text-sm font-medium">Enter your student number to begin your assessment</p>
           </div>
 
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-white/40 uppercase tracking-[0.2em] ml-1">Student Number</label>
+              <div className="relative group">
+                <input
+                  type="text"
+                  required
+                  value={studentNumber}
+                  onChange={(e) => setStudentNumber(e.target.value)}
+                  className="premium-input text-center text-xl font-bold tracking-widest group-hover:bg-white/[0.05]"
+                  placeholder="20240001"
+                  autoFocus
+                />
+              </div>
+            </div>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-accent text-primary font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-accent/90 transition-all disabled:opacity-50"
-          >
-            {isLoading ? 'Processing...' : (
-              <>
-                Continue to Exams
-                <ArrowRight className="w-5 h-5" />
-              </>
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-red-400 text-xs text-center font-medium animate-pulse-subtle">
+                {error}
+              </div>
             )}
-          </button>
-        </form>
 
-        <div className="mt-8 text-center">
-          <button
-            onClick={() => navigate('/lecturer/login')}
-            className="text-panel/40 hover:text-accent text-sm transition-colors"
-          >
-            Are you a lecturer? Login here
-          </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="glass-button w-full bg-accent text-[#0A1024] font-black py-4 rounded-2xl flex items-center justify-center gap-3 hover:scale-[1.02] hover:shadow-[0_0_32px_rgba(0,229,255,0.4)] transition-all disabled:opacity-50"
+            >
+              {isLoading ? (
+                <Loader2 className="w-6 h-6 animate-spin" />
+              ) : (
+                <>
+                  Continue to Exams
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-10 pt-8 border-t border-white/5 text-center">
+            <button
+              onClick={() => navigate('/lecturer/login')}
+              className="text-white/20 hover:text-accent font-bold text-xs uppercase tracking-widest transition-all hover:tracking-[0.15em]"
+            >
+              Lecturer Portal
+            </button>
+          </div>
         </div>
+        
+        <p className="mt-8 text-center text-[10px] text-white/10 font-bold uppercase tracking-[0.3em]">
+          Powered by Onkoshi Palace Labs
+        </p>
       </div>
     </div>
   );

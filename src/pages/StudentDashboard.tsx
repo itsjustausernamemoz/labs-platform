@@ -218,160 +218,203 @@ const StudentDashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-primary text-white font-sans">
-      <nav className="border-b border-white/10 p-6">
-        <div className="max-w-5xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <GraduationCap className="w-8 h-8 text-accent" />
-            <span className="text-xl font-bold">SecureLab</span>
+    <div className="min-h-screen bg-[#0A1024] text-white font-sans selection:bg-accent/30">
+      {/* Background decoration */}
+      <div className="fixed top-0 left-0 w-full h-full pointer-events-none opacity-40">
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-accent/5 rounded-full blur-[120px] animate-pulse-subtle" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/5 rounded-full blur-[120px] animate-pulse-subtle" style={{ animationDelay: '-3s' }} />
+      </div>
+
+      <nav className="sticky top-0 z-50 glass-panel border-x-0 border-t-0 px-6 py-4">
+        <div className="max-w-6xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-3 group cursor-pointer" onClick={() => navigate('/dashboard')}>
+            <div className="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center group-hover:bg-accent/20 transition-all">
+              <GraduationCap className="w-6 h-6 text-accent" />
+            </div>
+            <span className="text-xl font-black tracking-tight font-outfit">SecureLab</span>
           </div>
-          <div className="flex items-center gap-6">
-            <span className="text-panel/60 text-sm">Student: <span className="text-white font-medium">{student?.student_number}</span></span>
-            <button onClick={handleLogout} className="text-panel/40 hover:text-white transition-colors">
+          <div className="flex items-center gap-4">
+            <div className="hidden md:flex flex-col items-end mr-2">
+              <span className="text-[10px] text-white/30 font-bold uppercase tracking-widest">Logged in as</span>
+              <span className="text-sm font-bold text-accent">{student?.student_number}</span>
+            </div>
+            <button 
+              onClick={handleLogout} 
+              className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-red-500/10 hover:border-red-500/20 hover:text-red-400 transition-all"
+              title="Logout"
+            >
               <LogOut className="w-5 h-5" />
             </button>
           </div>
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto p-8">
-        <header className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
-          <div>
-            <h1 className="text-4xl font-bold mb-2">Available Examinations</h1>
-            <p className="text-panel/60">Select an exam to begin. Ensure you are in a quiet environment.</p>
+      <main className="max-w-6xl mx-auto px-6 py-12 relative z-10">
+        <header className="mb-16 flex flex-col md:flex-row md:items-end justify-between gap-8">
+          <div className="space-y-2">
+            <h1 className="text-5xl font-black tracking-tight font-outfit">Assessments</h1>
+            <p className="text-white/40 text-lg max-w-xl">
+              Welcome back. Your active examinations and previous performance reports are detailed below.
+            </p>
           </div>
           
-          <form onSubmit={handleJoinExam} className="flex gap-2 bg-white/5 p-2 rounded-2xl border border-white/10 w-full md:w-auto">
-            <input
-              type="text"
-              placeholder="ENTER EXAM CODE"
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              className="bg-transparent border-none outline-none px-4 py-2 text-sm font-bold tracking-widest w-full md:w-48 placeholder:text-panel/20"
-              maxLength={6}
-            />
-            <button
-              type="submit"
-              disabled={isJoining || !joinCode}
-              className="bg-accent text-primary px-6 py-2 rounded-xl font-bold text-sm hover:bg-accent/90 transition-all disabled:opacity-50 flex items-center gap-2 shrink-0"
-            >
-              {isJoining ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-              Join Exam
-            </button>
-          </form>
+          <div className="w-full md:w-auto">
+            <form onSubmit={handleJoinExam} className="glass-panel p-1.5 rounded-2xl flex items-center gap-2 group focus-within:ring-2 focus-within:ring-accent/30 transition-all">
+              <div className="flex items-center gap-3 pl-4">
+                <ShieldCheck className="w-5 h-5 text-white/20 group-focus-within:text-accent transition-colors" />
+                <input
+                  type="text"
+                  placeholder="EXAM CODE"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                  className="bg-transparent border-none outline-none py-2 text-sm font-black tracking-[0.3em] w-32 placeholder:text-white/10 placeholder:tracking-normal"
+                  maxLength={6}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isJoining || !joinCode}
+                className="bg-accent text-[#0A1024] px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-white hover:shadow-[0_0_20px_rgba(255,255,255,0.2)] transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                {isJoining ? <Loader2 className="w-4 h-4 animate-spin" /> : "Join"}
+              </button>
+            </form>
+          </div>
         </header>
 
         {isLoading ? (
-          <div className="flex justify-center py-20">
-            <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin"></div>
+          <div className="flex flex-col items-center justify-center py-32 gap-4">
+            <Loader2 className="w-12 h-12 text-accent animate-spin" />
+            <p className="text-white/20 text-xs font-bold uppercase tracking-[0.3em]">Syncing Laboratory Data...</p>
           </div>
         ) : exams.length === 0 ? (
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-12 text-center">
-            <AlertCircle className="w-12 h-12 text-panel/20 mx-auto mb-4" />
-            <h3 className="text-xl font-bold mb-2">No Active Exams</h3>
-            <p className="text-panel/40">There are currently no exams available for you to take.</p>
+          <div className="glass-panel rounded-[3rem] p-20 text-center border-dashed">
+            <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="w-10 h-10 text-white/10" />
+            </div>
+            <h3 className="text-2xl font-black mb-2 font-outfit">No Pending Assessments</h3>
+            <p className="text-white/30 max-w-sm mx-auto">There are currently no active examinations assigned to your profile. Join one using an enrollment code.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {exams.map((exam) => (
               <button
                 key={exam.id}
                 onClick={() => navigate(`/exam/${exam.id}`)}
-                className="group bg-white/5 border border-white/10 p-8 rounded-2xl text-left hover:bg-white/10 hover:border-accent/50 transition-all flex justify-between items-center"
+                className="group relative glass-panel p-8 rounded-[2.5rem] text-left hover:scale-[1.02] hover:bg-white/[0.06] hover:border-accent/30 transition-all duration-300"
               >
-                <div>
-                  <h3 className="text-2xl font-bold mb-4 group-hover:text-accent transition-colors">{exam.title}</h3>
-                  <div className="flex gap-4 text-sm text-panel/60">
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4" />
-                      <span>{exam.duration_minutes} Minutes</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <BookOpen className="w-4 h-4" />
-                      <span>Formal Assessment</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-accent group-hover:text-primary transition-all">
+                <div className="absolute top-6 right-6 w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center group-hover:bg-accent group-hover:text-[#0A1024] transition-all duration-300 shadow-xl">
                   <ChevronRight className="w-6 h-6" />
+                </div>
+                
+                <div className="mb-8">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-[10px] font-black text-accent uppercase tracking-widest mb-4">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                    Live Assessment
+                  </div>
+                  <h3 className="text-2xl font-black leading-tight group-hover:text-accent transition-colors font-outfit mb-2">{exam.title}</h3>
+                </div>
+
+                <div className="flex flex-wrap gap-4 pt-6 border-t border-white/5">
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                    <Clock className="w-3.5 h-3.5" />
+                    {exam.duration_minutes}m Duration
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                    <BookOpen className="w-3.5 h-3.5" />
+                    Formal Exam
+                  </div>
                 </div>
               </button>
             ))}
           </div>
         )}
 
-        <section className="mt-16">
-          <header className="mb-8">
-            <h2 className="text-3xl font-bold mb-2">Examination Results</h2>
-            <p className="text-panel/60">Review your performance from previous sessions.</p>
+        <section className="mt-24">
+          <header className="mb-10 flex items-end justify-between">
+            <div>
+              <h2 className="text-3xl font-black tracking-tight font-outfit">Results Archive</h2>
+              <p className="text-white/40">Your historical performance and feedback reports.</p>
+            </div>
+            <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">
+              {submissions.length} Record{submissions.length !== 1 ? 's' : ''}
+            </div>
           </header>
 
           {submissions.length === 0 ? (
-            <div className="bg-white/5 border border-white/5 rounded-2xl p-8 text-center text-panel/40">
-              No previous results found.
+            <div className="glass-panel rounded-3xl p-12 text-center border-dashed">
+              <p className="text-white/20 font-bold uppercase tracking-widest text-xs">No examination history found.</p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4">
               {submissions.map((sub) => {
                 const isClickable = sub.graded;
                 return (
                   <div 
                     key={sub.id}
                     onClick={() => isClickable ? navigate(`/exam/results/${sub.id}`) : undefined}
-                    className={`bg-white/5 border border-white/10 p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
-                      isClickable ? 'cursor-pointer hover:bg-white/10 hover:border-accent/50 group' : 'opacity-80'
+                    className={`glass-panel p-6 md:p-8 rounded-[2rem] flex flex-col md:flex-row md:items-center justify-between gap-6 transition-all duration-300 ${
+                      isClickable ? 'cursor-pointer hover:bg-white/[0.06] hover:border-accent/20 group' : 'opacity-60'
                     }`}
                   >
-                    <div>
-                      <h3 className={`text-xl font-bold mb-1 ${isClickable ? 'group-hover:text-accent transition-colors' : ''}`}>
-                        {sub.exams?.title || (sub as any).exam?.title || 'Unknown Exam'}
-                      </h3>
-                      <p className="text-sm text-panel/40">Submitted on {new Date(sub.submitted_at).toLocaleDateString()}</p>
+                    <div className="flex items-center gap-6">
+                      <div className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center shrink-0 shadow-lg ${isClickable ? 'bg-accent/10 text-accent' : 'bg-white/5 text-white/20'}`}>
+                        <div className="text-lg font-black leading-none">{new Date(sub.submitted_at).getDate()}</div>
+                        <div className="text-[8px] font-black uppercase tracking-tighter">{new Date(sub.submitted_at).toLocaleString('default', { month: 'short' })}</div>
+                      </div>
+                      <div>
+                        <h3 className={`text-xl font-black mb-1 font-outfit ${isClickable ? 'group-hover:text-accent transition-colors' : 'text-white/40'}`}>
+                          {sub.exams?.title || (sub as any).exam?.title || 'Unknown Exam'}
+                        </h3>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] text-white/20 font-bold uppercase tracking-widest leading-none">Record PK-{sub.id.slice(0, 8)}</span>
+                        </div>
+                      </div>
                     </div>
                     
-                    <div className="flex items-center gap-4">
-                      <div className="text-right flex flex-col items-end">
+                    <div className="flex items-center justify-between md:justify-end gap-8 border-t md:border-t-0 border-white/5 pt-4 md:pt-0">
+                      <div className="text-right">
                         {sub.graded ? (
-                          <>
-                            <div className="flex flex-col items-end text-right">
-                              <div className="text-3xl font-black text-accent tabular-nums leading-none">
-                                {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}%
+                          <div className="flex items-center gap-6">
+                            <div className="flex flex-col items-end">
+                              <div className="text-4xl font-black text-white tabular-nums leading-none tracking-tighter">
+                                {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}<span className="text-accent text-xl">%</span>
                               </div>
-                              <div className="text-[10px] text-panel/40 font-bold uppercase tracking-widest mt-1">Grade</div>
-                              
-                              <div className="mt-4 flex flex-col items-end gap-2">
-                                  <div className="flex items-center gap-1.5 text-accent font-bold text-xs bg-accent/10 px-2 py-1 rounded-lg">
-                                    <ShieldCheck className="w-3.5 h-3.5" />
-                                    Lecturer Marked
-                                  </div>
-                                
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    navigate(`/exam/results/${sub.id}`);
-                                  }}
-                                  className="flex items-center gap-2 bg-accent text-primary px-5 py-2.5 rounded-xl font-black text-xs hover:bg-accent/90 transition-all shadow-lg shadow-accent/20 group-hover:scale-105"
-                                >
-                                  Review Script
-                                  <ArrowRight className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
+                              <div className="text-[9px] text-accent font-bold uppercase tracking-[0.2em] mt-1">Final Result</div>
                             </div>
-                          </>
+                            
+                            <div className="hidden sm:flex flex-col items-end gap-2">
+                                <div className="flex items-center gap-1.5 text-[9px] text-accent font-black uppercase tracking-widest bg-accent/5 border border-accent/20 px-3 py-1.5 rounded-full">
+                                  <ShieldCheck className="w-3 h-3" />
+                                  Lecturer Marked
+                                </div>
+                              
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate(`/exam/results/${sub.id}`);
+                                }}
+                                className="flex items-center gap-2 bg-white text-[#0A1024] px-5 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent transition-all shadow-xl group-hover:scale-105"
+                              >
+                                Review
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
                         ) : (
                           <div className="flex flex-col items-end">
-                            <div className="text-lg font-bold text-orange-500 flex items-center gap-2">
-                              <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
-                              Marking...
+                            <div className="inline-flex items-center gap-3 px-4 py-2 bg-orange-500/10 border border-orange-500/20 rounded-2xl text-orange-400 font-bold text-sm">
+                              <span className="w-2 h-2 bg-orange-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(251,146,60,0.5)]"></span>
+                              Evaluation in Progress
                             </div>
-                            <div className="text-[10px] text-panel/40 font-bold uppercase tracking-wider mt-1">In Progress</div>
+                            <div className="text-[9px] text-white/20 font-bold uppercase tracking-[0.2em] mt-2 mr-1">Please check back soon</div>
                           </div>
                         )}
                       </div>
                       
-                      {!sub.graded && (
-                        <div className="w-10 h-10 rounded-full bg-white/5 flex flex-shrink-0 items-center justify-center opacity-20">
-                          <ChevronRight className="w-5 h-5" />
+                      {isClickable && (
+                        <div className="hidden md:flex w-10 h-10 rounded-full border border-white/5 flex-shrink-0 items-center justify-center group-hover:border-accent/40 group-hover:bg-accent/5 transition-all">
+                          <ChevronRight className="w-5 h-5 text-white/20 group-hover:text-accent" />
                         </div>
                       )}
                     </div>

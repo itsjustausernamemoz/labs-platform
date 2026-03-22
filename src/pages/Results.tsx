@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   Calendar, Search, FileEdit, Download, Trash2,
-  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle, XCircle, Loader2, Sparkles
+  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle, Loader2, Sparkles
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -614,399 +614,383 @@ const Results: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 font-sans">
-      <nav className="bg-primary text-white p-4 sticky top-0 z-50 shadow-md">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+    <div className="min-h-screen bg-[#0A1024] text-white font-outfit pb-20">
+      {/* Dynamic Background */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-accent/10 rounded-full blur-[120px] animate-pulse" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/10 rounded-full blur-[120px] animate-pulse" />
+      </div>
+
+      <nav className="sticky top-0 z-[100] bg-[#0A1024]/80 backdrop-blur-xl border-b border-white/5 py-4">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
           <button
             onClick={() => navigate('/lecturer/dashboard')}
-            className="flex items-center gap-2 text-panel/60 hover:text-white transition-colors"
+            className="group flex items-center gap-3 text-white/40 hover:text-white transition-all"
           >
-            <ArrowLeft className="w-5 h-5" />
-            Back to Dashboard
+            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-accent/10 group-hover:text-accent transition-all">
+              <ArrowLeft className="w-5 h-5" />
+            </div>
+            <span className="text-xs font-black uppercase tracking-widest">Dashboard</span>
           </button>
+          
           <div className="text-center">
-            <h1 className="text-lg font-bold truncate max-w-xs">{examTitle}</h1>
-            <p className="text-xs text-accent/60 uppercase tracking-widest">Exam Results</p>
+            <h1 className="text-xl font-black tracking-tight text-white font-outfit truncate max-w-sm">{examTitle}</h1>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+              <p className="text-[10px] text-accent/60 font-black uppercase tracking-[0.2em]">Live Intelligence Repository</p>
+            </div>
           </div>
-          <div className="w-24"></div> {/* Spacer for symmetry */}
+
+          <div className="w-24 flex justify-end">
+            <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center border border-accent/20">
+              <Trophy className="w-4 h-4 text-accent" />
+            </div>
+          </div>
         </div>
       </nav>
 
-      <main className="max-w-6xl mx-auto p-8">
-        <div className="flex gap-4 mb-8">
-          <button
-            onClick={() => setActiveTab('submissions')}
-            className={`px-6 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${
-              activeTab === 'submissions' 
-                ? 'bg-primary text-white shadow-md' 
-                : 'bg-white text-slate-400 hover:bg-slate-50 border border-slate-200'
-            }`}
-          >
-            {isRefreshing && activeTab === 'submissions' && <Loader2 className="w-4 h-4 animate-spin" />}
-            Students ({groupedSubmissions.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('students')}
-            className={`px-6 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${
-              activeTab === 'students' 
-                ? 'bg-primary text-white shadow-md' 
-                : 'bg-white text-slate-400 hover:bg-slate-50 border border-slate-200'
-            }`}
-          >
-            {isRefreshing && activeTab === 'students' && <Loader2 className="w-4 h-4 animate-spin" />}
-            Enrolled Students ({enrollments.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('trash')}
-            className={`px-6 py-2 rounded-lg font-bold transition-all flex items-center gap-2 ${
-              activeTab === 'trash' 
-                ? 'bg-red-500 text-white shadow-md' 
-                : 'bg-white text-slate-400 hover:bg-slate-50 border border-slate-200'
-            }`}
-          >
-            {isRefreshing && activeTab === 'trash' && <Loader2 className="w-4 h-4 animate-spin" />}
-            Trash ({trashSubmissions.length})
-          </button>
-        </div>
+      <main className="max-w-7xl mx-auto px-6 py-12 relative z-10">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 mb-12">
+          <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/5 w-fit">
+            <button
+              onClick={() => setActiveTab('submissions')}
+              className={`px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-3 ${
+                activeTab === 'submissions' 
+                  ? 'bg-accent text-[#0A1024] shadow-[0_0_20px_rgba(0,229,255,0.3)]' 
+                  : 'text-white/40 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              {isRefreshing && activeTab === 'submissions' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4"/>}
+              Candidates ({groupedSubmissions.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('students')}
+              className={`px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-3 ${
+                activeTab === 'students' 
+                  ? 'bg-accent text-[#0A1024] shadow-[0_0_20px_rgba(0,229,255,0.3)]' 
+                  : 'text-white/40 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              {isRefreshing && activeTab === 'students' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4"/>}
+              Enrolled ({enrollments.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('trash')}
+              className={`px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-3 ${
+                activeTab === 'trash' 
+                  ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]' 
+                  : 'text-white/40 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Trash2 className="w-4 h-4"/>
+              Trash ({trashSubmissions.length})
+            </button>
+          </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center text-blue-600">
-              <Users className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-sm text-slate-500 font-medium">Total Students</p>
-              <p className="text-2xl font-bold text-primary">{submissions.length}</p>
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center text-green-600">
-              <Trophy className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-sm text-slate-500 font-medium">Average Score</p>
-              <p className="text-2xl font-bold text-primary">{averageScore}%</p>
-            </div>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
-            <div className="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center text-red-600">
-              <AlertCircle className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-sm text-slate-500 font-medium">High Violations</p>
-              <p className="text-2xl font-bold text-primary">{submissions.filter(s => (s.violations_count ?? 0) >= 2).length}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <h2 className="text-xl font-bold text-primary">
-              {activeTab === 'submissions' ? 'Submission Results' : activeTab === 'students' ? 'Enrolled Candidates' : 'Trash Box'}
-            </h2>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <div className="flex items-center gap-4">
+             <div className="relative group/search">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within/search:text-accent transition-colors" />
                 <input
                   type="text"
-                  placeholder="Search student number..."
+                  placeholder="Filter student ID..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-primary transition-all text-sm w-full md:w-64"
+                  className="pl-12 pr-6 py-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-all text-sm font-bold w-full sm:w-64 placeholder:text-white/10"
                 />
               </div>
-              {activeTab === 'submissions' && (
+              
+              <div className="flex gap-3">
                 <button
                   onClick={handleDownloadScript}
                   disabled={submissions.length === 0}
-                  className="flex items-center justify-center gap-2 bg-primary text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-primary/90 transition-all disabled:opacity-50"
-                  title="Download Results as CSV"
+                  className="bg-white/5 border border-white/10 text-white p-4 rounded-2xl hover:bg-white/10 transition-all disabled:opacity-30 group"
+                  title="Export Manifest (CSV)"
                 >
-                  <Download className="w-4 h-4" />
-                  Download Script
+                  <Download className="w-5 h-5 text-accent group-hover:scale-110 transition-transform" />
                 </button>
-              )}
-              {activeTab === 'submissions' && (
                 <button
                   onClick={handleGenerateClassFocusReport}
                   disabled={isGeneratingClassReport || submissions.filter(s => s.graded).length === 0}
-                  className="flex items-center justify-center gap-2 bg-accent text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-accent/90 transition-all disabled:opacity-50 shadow-sm"
-                  title="Generate Aggregate Focus Report for the entire class"
+                  className="glass-button bg-white text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:scale-[1.02] shadow-xl disabled:opacity-30"
                 >
-                  {isGeneratingClassReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  Class Focus Report
+                  {isGeneratingClassReport ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+                  Generate Focus
                 </button>
-              )}
+              </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
+          <div className="glass-panel p-10 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-blue-500/20 transition-all" />
+            <div className="flex items-center gap-6 relative z-10">
+              <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center text-blue-400 border border-blue-500/20">
+                <Users className="w-8 h-8" />
+              </div>
+              <div>
+                <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Total Candidates</p>
+                <p className="text-4xl font-black text-white">{submissions.length}</p>
+              </div>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            {activeTab === 'submissions' ? (
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                    <th className="px-6 py-4">Student Number</th>
-                    <th className="px-6 py-4">Score</th>
-                    <th className="px-6 py-4">Submission Time</th>
-                    <th className="px-6 py-4">Violations</th>
-                    <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {groupedSubmissions.map((group) => {
-                    const latest = group.submissions[0];
-                    const isExpanded = expandedStudentId === group.student_id;
-                    
-                    return (
-                      <React.Fragment key={group.student_id}>
-                        <tr 
-                          className={`hover:bg-slate-50 transition-colors cursor-pointer ${isExpanded ? 'bg-slate-50/50' : ''}`}
-                          onClick={() => setExpandedStudentId(isExpanded ? null : group.student_id)}
-                        >
-                          <td className="px-6 py-4 font-bold text-primary">
-                            <div className="flex items-center gap-2">
-                              {group.submissions.length > 1 && (
-                                <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                              )}
-                              {group.student?.student_number || 'Unknown'}
-                              {group.submissions.length > 1 && (
-                                <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded-full">
-                                  {group.submissions.length} attempts
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold">{latest.score}</span>
-                              <span className="text-slate-400 text-sm">/ {latest.total_marks}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-slate-500">
-                            <div className="flex items-center gap-2">
-                              <Calendar className="w-4 h-4" />
-                              {format(new Date(latest.submitted_at), 'MMM d, HH:mm')}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                              (latest.violations_count ?? 0) === 0 ? 'text-green-600 bg-green-50' :
-                              (latest.violations_count ?? 0) >= 3 ? 'text-red-600 bg-red-50' :
-                              'text-orange-600 bg-orange-50'
-                            }`}>
-                              {latest.violations_count ?? 0} Detected
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-slate-500">
-                            <div className="flex items-center justify-between gap-4">
-                              <span>
-                                {latest.status === 'draft' ? 'In Progress' : latest.is_manual ? 'Lecturer Marked' : latest.graded ? 'Auto-Graded' : 'Marking...'}
-                              </span>
-                              {latest.marked_by_name || latest.marked_by_email ? (
-                                <p className="text-[9px] text-slate-400 font-bold italic mt-1 text-right">
-                                  By: {latest.marked_by_name || latest.marked_by_email}
-                                </p>
-                              ) : null}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                              <button
-                                onClick={() => navigate(`/lecturer/review/${latest.id}`)}
-                                className="flex items-center gap-1 bg-primary/10 text-primary border border-primary/20 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-all"
-                              >
-                                <FileEdit className="w-3.5 h-3.5" />
-                                Mark
-                              </button>
-                              <button
-                                onClick={() => handleDeleteSubmission(latest.id, group.student.id)}
-                                className="p-1.5 text-orange-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
-                                title="Delete submission (Move to Trash)"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => group.student?.id && handleWipeStudent(group.student.id, group.student.student_number)}
-                                className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all"
-                                title="Wipe Student Attempt (Deletes submission AND clears all violations to allow a full fresh start)"
-                              >
-                                <XCircle className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-
-                        </tr>
-                        {isExpanded && (
-                          <tr>
-                            <td colSpan={6} className="bg-slate-50/30 px-6 py-4">
-                              <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-inner">
-                                <table className="w-full text-xs">
-                                  <thead className="bg-slate-50 text-slate-400 uppercase tracking-wider font-bold">
-                                    <tr>
-                                      <th className="px-4 py-2 text-left">Attempt Date</th>
-                                      <th className="px-4 py-2 text-left">Score</th>
-                                      <th className="px-4 py-2 text-left">Status</th>
-                                      <th className="px-4 py-2 text-right">Actions</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100">
-                                    {group.submissions.map((sub) => (
-                                      <tr key={sub.id} className="hover:bg-slate-50">
-                                        <td className="px-4 py-3 text-slate-500">
-                                          {format(new Date(sub.submitted_at), 'MMM d, yyyy HH:mm:ss')}
-                                        </td>
-                                        <td className="px-4 py-3 font-bold">
-                                          {sub.score} / {sub.total_marks}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                          <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${
-                                            sub.status === 'draft' ? 'bg-slate-100 text-slate-500' :
-                                            sub.graded ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'
-                                          }`}>
-                                            {sub.status === 'draft' ? 'Draft' : sub.is_manual ? 'Manual' : sub.graded ? 'Auto' : 'Pending'}
-                                          </span>
-                                        </td>
-                                        <td className="px-4 py-3 text-right">
-                                          <div className="flex items-center justify-end gap-2">
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                navigate(`/lecturer/review/${sub.id}`);
-                                              }}
-                                              className="text-accent hover:underline font-bold"
-                                            >
-                                              Review
-                                            </button>
-                                            {sub.status === 'submitted' && (
-                                              <button
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  handleResumeSession(sub.id, group.student.student_number);
-                                                }}
-                                                className="text-blue-500 hover:underline font-bold"
-                                              >
-                                                Resume
-                                              </button>
-                                            )}
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteSubmission(sub.id, group.student.id);
-                                              }}
-                                              className="text-red-400 hover:text-red-600"
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            ) : activeTab === 'students' ? (
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                    <th className="px-6 py-4">Student Number</th>
-                    <th className="px-6 py-4">Enrollment Date</th>
-                    <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {enrollments
-                    .filter(e => e.student.student_number.toLowerCase().includes(searchTerm.toLowerCase()))
-                    .map((e) => {
-                      const hasSubmitted = submissions.some(s => s.student_id === e.student_id);
-                      return (
-                        <tr key={e.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4 font-bold text-primary">{e.student.student_number}</td>
-                          <td className="px-6 py-4 text-sm text-slate-500">
-                            {format(new Date(e.enrolled_at), 'MMM d, yyyy HH:mm')}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                              hasSubmitted ? 'text-green-600 bg-green-50' : 'text-slate-500 bg-slate-50'
-                            }`}>
-                              {hasSubmitted ? 'Submitted' : 'Pending Start'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              onClick={() => handleUnenroll(e.id, e.student.student_number)}
-                              className="text-red-500 hover:text-red-700 font-bold text-xs uppercase tracking-wider px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-50 transition-all"
-                            >
-                              Unenroll
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            ) : activeTab === 'trash' ? (
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
-                    <th className="px-6 py-4">Student Number</th>
-                    <th className="px-6 py-4">Previous Score</th>
-                    <th className="px-6 py-4">Deleted At</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {trashSubmissions.map((sub) => (
-                    <tr key={sub.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-slate-600">{sub.student?.student_number || 'Unknown'}</td>
-                      <td className="px-6 py-4 font-bold text-slate-400">
-                        {sub.score} / {sub.total_marks}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-slate-400">
-                        {format(new Date((sub as any).deleted_at || sub.submitted_at), 'MMM d, HH:mm')}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-3">
-                          <button
-                            onClick={() => handleRestoreSubmission(sub)}
-                            className="bg-green-50 text-green-600 px-4 py-1.5 rounded-lg font-bold text-xs uppercase tracking-wider hover:bg-green-100"
-                          >
-                            Restore
-                          </button>
-                          <button
-                            onClick={() => handlePermanentDelete(sub.id)}
-                            className="text-red-400 hover:text-red-600"
-                            title="Permanent delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : null}
-            {(activeTab === 'submissions' && groupedSubmissions.length === 0) ||
-             (activeTab === 'students' && enrollments.length === 0) ||
-             (activeTab === 'trash' && trashSubmissions.length === 0) ? (
-              <div className="p-12 text-center text-slate-400">
-                {activeTab === 'submissions' 
-                  ? 'No submissions found for this exam.' 
-                  : activeTab === 'students'
-                  ? 'No students are currently enrolled in this exam.'
-                  : 'The Trash Box is empty.'}
+          <div className="glass-panel p-10 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-accent/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-accent/20 transition-all" />
+            <div className="flex items-center gap-6 relative z-10">
+              <div className="w-16 h-16 bg-accent/10 rounded-2xl flex items-center justify-center text-accent border border-accent/20">
+                <Trophy className="w-8 h-8" />
               </div>
-            ) : null}
+              <div>
+                <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Mean Performance</p>
+                <p className="text-4xl font-black text-white">{averageScore}%</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="glass-panel p-10 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-red-500/20 transition-all" />
+            <div className="flex items-center gap-6 relative z-10">
+              <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center text-red-500 border border-red-500/20">
+                <AlertCircle className="w-8 h-8" />
+              </div>
+              <div>
+                <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">High Risk Violations</p>
+                <p className="text-4xl font-black text-white">{submissions.filter(s => (s.violations_count ?? 0) >= 2).length}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative group">
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-3xl font-black tracking-tight font-outfit text-white">
+              {activeTab === 'submissions' ? 'Submission Analysis' : activeTab === 'students' ? 'Candidate Roster' : 'Decommissioned Vault'}
+            </h2>
+          </div>
+
+          <div className="space-y-4">
+            {activeTab === 'submissions' ? (
+              groupedSubmissions.map((group) => {
+                const latest = group.submissions[0];
+                const isExpanded = expandedStudentId === group.student_id;
+                
+                return (
+                  <div key={group.student_id} className="glass-panel rounded-3xl overflow-hidden border border-white/5 hover:border-accent/20 transition-all duration-300">
+                    <div 
+                      className={`p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 cursor-pointer ${isExpanded ? 'bg-white/5' : 'hover:bg-white/[0.04]'}`}
+                      onClick={() => setExpandedStudentId(isExpanded ? null : group.student_id)}
+                    >
+                      <div className="flex items-center gap-6">
+                        <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center border border-accent/20 group-hover:scale-110 transition-transform">
+                          <Users className="w-7 h-7 text-accent" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-black text-white font-outfit">{group.student?.student_number || 'Internal-ID'}</h3>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Attempt Profile</span>
+                            {group.submissions.length > 1 && (
+                              <span className="px-2 py-0.5 rounded-lg bg-accent/10 text-accent text-[9px] font-black uppercase tracking-widest border border-accent/20">
+                                {group.submissions.length} Sessions
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 md:gap-12 flex-1 max-w-3xl">
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Aggregate Score</p>
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-xl font-black text-accent">{latest.score}</span>
+                            <span className="text-xs font-bold text-white/20">/ {latest.total_marks}</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Security Status</p>
+                          <div className={`flex items-center gap-1.5 text-xs font-black uppercase tracking-widest ${
+                            (latest.violations_count ?? 0) === 0 ? 'text-green-400' :
+                            (latest.violations_count ?? 0) >= 3 ? 'text-red-400' : 'text-orange-400'
+                          }`}>
+                            <div className={`w-1.5 h-1.5 rounded-full ${
+                              (latest.violations_count ?? 0) === 0 ? 'bg-green-400' :
+                              (latest.violations_count ?? 0) >= 3 ? 'bg-red-400' : 'bg-orange-400'
+                            }`} />
+                            {latest.violations_count ?? 0} Violations
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Submission</p>
+                          <div className="flex items-center gap-2 text-xs font-bold text-white/60">
+                            <Calendar className="w-3.5 h-3.5" />
+                            {format(new Date(latest.submitted_at), 'MMM d, HH:mm')}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Entity Status</p>
+                          <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                            latest.status === 'draft' 
+                              ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' 
+                              : latest.graded 
+                                ? 'bg-green-500/10 text-green-400 border-green-500/20' 
+                                : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                          }`}>
+                            {latest.status === 'draft' ? 'At Work' : latest.graded ? 'Verified' : 'Review Required'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); navigate(`/lecturer/review/${latest.id}`); }}
+                          className="w-12 h-12 rounded-2xl bg-accent text-[#0A1024] flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-lg"
+                          title="Detailed Audit"
+                        >
+                          <FileEdit className="w-5 h-5" />
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleResumeSession(latest.id, group.student?.student_number || ''); }}
+                          className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-all text-white/40 hover:text-white"
+                          title="Restore Draft Access"
+                        >
+                          <ChevronRight className="w-5 h-5 rotate-180" />
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); handleDeleteSubmission(latest.id, group.student_id); }}
+                          className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all"
+                          title="Decommission Submission"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {isExpanded && group.submissions.length > 1 && (
+                      <div className="bg-black/20 border-t border-white/5 p-8 animate-in slide-in-from-top duration-300">
+                        <div className="flex items-center gap-3 mb-6">
+                           <div className="w-1 h-4 bg-accent rounded-full" />
+                           <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40">Historical Assessment Logs</h4>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {group.submissions.slice(1).map((sub) => (
+                            <div key={sub.id} className="bg-white/5 border border-white/5 p-6 rounded-2xl flex items-center justify-between group/audit">
+                              <div className="flex items-center gap-5">
+                                <div className="p-3 bg-white/5 rounded-xl border border-white/5 text-white/20 group-hover/audit:text-accent transition-colors">
+                                  <Calendar className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-white/80">{format(new Date(sub.submitted_at), 'MMM d, yyyy · HH:mm')}</p>
+                                  <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest mt-1">Archived Repository</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <span className="text-lg font-black text-white/40">{sub.score} <span className="text-[10px] font-bold">PTS</span></span>
+                                <button 
+                                  onClick={() => navigate(`/lecturer/review/${sub.id}`)}
+                                  className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent hover:bg-accent hover:text-[#0A1024] transition-all"
+                                >
+                                  <FileEdit className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : activeTab === 'students' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {enrollments.filter(e => e.student?.student_number.toLowerCase().includes(searchTerm.toLowerCase())).map((enroll) => (
+                  <div key={enroll.id} className="glass-panel p-8 rounded-[2rem] border border-white/5 hover:border-accent/30 transition-all group overflow-hidden relative">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-accent/5 rounded-full blur-2xl group-hover:bg-accent/10 transition-all" />
+                    <div className="flex items-center justify-between mb-8 relative z-10">
+                      <div className="w-14 h-14 bg-accent/10 rounded-2xl flex items-center justify-center text-accent border border-accent/20 font-black">
+                        {enroll.student?.student_number?.substring(0, 2) || 'ST'}
+                      </div>
+                      <button 
+                        onClick={() => handleUnenroll(enroll.id, enroll.student?.student_number)}
+                        className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all"
+                        title="Remove Candidate"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <h3 className="text-2xl font-black mb-1 group-hover:text-accent transition-colors">{enroll.student?.student_number}</h3>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-8">Registered Candidate</p>
+
+                    <div className="pt-6 border-t border-white/5 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-3 h-3 text-white/20" />
+                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Enrolled {format(new Date(enroll.enrolled_at), 'MMM d')}</span>
+                      </div>
+                      <button 
+                        onClick={() => handleWipeStudent(enroll.student_id, enroll.student?.student_number)}
+                        className="text-[9px] font-black uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
+                      >
+                       Full Wipe Access
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {trashSubmissions.map((sub) => (
+                  <div key={sub.id} className="glass-panel p-8 rounded-[2rem] border border-red-500/10 hover:border-red-500/30 transition-all group relative grayscale opacity-60 hover:grayscale-0 hover:opacity-100">
+                    <div className="flex justify-between items-start mb-8">
+                       <div>
+                        <h3 className="text-2xl font-black text-white">{sub.student?.student_number}</h3>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-red-500/60 mt-1">Decommissioned Data</p>
+                       </div>
+                       <Trophy className="w-5 h-5 text-white/10" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 mb-8">
+                      <div className="bg-black/20 p-4 rounded-2xl border border-white/5">
+                        <p className="text-[9px] font-black text-white/20 uppercase mb-1">Score</p>
+                        <p className="text-lg font-black">{sub.score}/{sub.total_marks}</p>
+                      </div>
+                      <div className="bg-black/20 p-4 rounded-2xl border border-white/5">
+                        <p className="text-[9px] font-black text-white/20 uppercase mb-1">Time</p>
+                        <p className="text-xs font-bold text-white/60">{format(new Date(sub.submitted_at), 'MMM d')}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 mt-4">
+                      <button 
+                        onClick={() => handleRestoreSubmission(sub)}
+                        className="flex-1 bg-accent text-[#0A1024] py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:scale-105 active:scale-95 transition-all"
+                      >
+                        Recommission
+                      </button>
+                      <button 
+                        onClick={() => handlePermanentDelete(sub.id)}
+                        className="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {((activeTab === 'submissions' && groupedSubmissions.length === 0) || 
+              (activeTab === 'students' && enrollments.length === 0) ||
+              (activeTab === 'trash' && trashSubmissions.length === 0)) && (
+              <div className="glass-panel p-20 rounded-[3rem] border border-white/5 flex flex-col items-center text-center">
+                <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-8">
+                  <Search className="w-8 h-8 text-white/10" />
+                </div>
+                <h3 className="text-2xl font-black mb-2 opacity-60">Null Repository</h3>
+                <p className="text-white/20 text-sm max-w-xs font-bold uppercase tracking-widest">No matching datasets were discovered in the current scope.</p>
+              </div>
+            )}
           </div>
         </div>
       </main>
