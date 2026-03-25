@@ -12,6 +12,10 @@ interface Exam {
   title: string;
   duration_minutes: number;
   is_active: boolean;
+  total_marks?: number;
+  exam_type?: 'mcq_only' | 'structured_only' | 'mixed';
+  allowed_attempts?: number;
+  attempt_count?: number; // Local property for UI
 }
 
 interface Submission {
@@ -69,7 +73,7 @@ const StudentDashboard: React.FC = () => {
     console.log('Syncing profile for student:', initialStudentData.student_number);
 
     try {
-      // 1. Fetch all active exams the student is enrolled in via the enrollments table
+      // 1. Fetch all enrollment data with exam details
       const { data: enrollmentData, error: enrollError } = await supabase
         .from('enrollments')
         .select(`
@@ -77,7 +81,10 @@ const StudentDashboard: React.FC = () => {
             id,
             title,
             duration_minutes,
-            is_active
+            is_active,
+            total_marks,
+            exam_type,
+            allowed_attempts
           )
         `)
         .eq('student_id', initialStudentData.id);
@@ -88,17 +95,36 @@ const StudentDashboard: React.FC = () => {
         return;
       }
 
-      // Filter for active exams and extract the exam objects
-      // Also filter out exams that have already been submitted
-      const submittedExamIds = new Set((submissions || []).map(s => s.exams?.id || (s as any).exam_id));
+      // 2. Fetch all submissions to check attempt counts
+      const { data: allSubs } = await supabase
+        .from('submissions')
+        .select('exam_id, status')
+        .eq('student_id', initialStudentData.id);
+
+      const submissionCounts = new Map();
+      (allSubs || []).forEach(s => {
+        if (s.status === 'submitted') {
+          submissionCounts.set(s.exam_id, (submissionCounts.get(s.exam_id) || 0) + 1);
+        }
+      });
       
       const activeExams = (enrollmentData || [])
         .map((e: any) => e.exams)
-        .filter((exam: any) => 
-          exam && (exam.is_active || (exam as any).is_active) && !submittedExamIds.has(exam.id)
-        );
+        .filter((exam: any) => {
+          if (!exam || !(exam.is_active || (exam as any).is_active)) return false;
+          
+          const submittedCount = submissionCounts.get(exam.id) || 0;
+          const allowed = exam.allowed_attempts || 1;
+          const hasDraft = (allSubs || []).some(s => s.exam_id === exam.id && s.status === 'draft');
+          
+          return submittedCount < allowed || hasDraft;
+        })
+        .map((exam: any) => ({
+          ...exam,
+          attempt_count: (submissionCounts.get(exam.id) || 0) + 1
+        }));
 
-      console.log(`Found ${activeExams.length} active enrolled exams after filtering ${submittedExamIds.size} submissions.`);
+      console.log(`Found ${activeExams.length} active enrolled exams.`);
       setExams(activeExams);
 
       // 2. Keep the student profile synced (optional but helpful for student_number)
@@ -313,6 +339,13 @@ const StudentDashboard: React.FC = () => {
                     Live Assessment
                   </div>
                   <h3 className="text-2xl font-black leading-tight group-hover:text-accent transition-colors font-outfit mb-2">{exam.title}</h3>
+                  <div className="flex items-center gap-3 text-[10px] font-bold text-accent/60 uppercase tracking-widest">
+                    <span className="px-2 py-0.5 bg-accent/10 rounded-lg">{exam.exam_type?.replace('_', ' ')}</span>
+                    <span className="w-1 h-1 rounded-full bg-white/10" />
+                    <span>{exam.total_marks || 0} Marks Total</span>
+                    <span className="w-1 h-1 rounded-full bg-white/10" />
+                    <span className="text-white/40">Attempt {exam.attempt_count} / {exam.allowed_attempts || 1}</span>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-4 pt-6 border-t border-white/5">
@@ -427,16 +460,25 @@ const StudentDashboard: React.FC = () => {
                       <div className="text-right">
                         <div className="flex items-center gap-6">
                           <div className="flex flex-col items-end">
-                            <div className="text-4xl font-black text-white tabular-nums leading-none tracking-tighter">
-                              {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}<span className="text-accent text-xl">%</span>
+                            <div className="flex items-baseline gap-2">
+                              <div className="text-4xl font-black text-white tabular-nums leading-none tracking-tighter">
+                                {sub.total_marks > 0 ? ((sub.score / sub.total_marks) * 100).toFixed(0) : 0}<span className="text-accent text-xl">%</span>
+                              </div>
+                              <div className="text-lg font-bold text-white/50 tabular-nums">
+                                ({sub.score}/{sub.total_marks})
+                              </div>
                             </div>
                             <div className="text-[9px] text-accent font-bold uppercase tracking-[0.2em] mt-1">Final Result</div>
                           </div>
                           
                           <div className="hidden sm:flex flex-col items-end gap-2">
-                            <div className="flex items-center gap-1.5 text-[9px] text-accent font-black uppercase tracking-widest bg-accent/5 border border-accent/20 px-3 py-1.5 rounded-full">
+                            <div className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full ${
+                              sub.is_manual 
+                                ? 'bg-accent/5 border border-accent/20 text-accent' 
+                                : 'bg-purple-500/10 border border-purple-500/20 text-purple-400'
+                            }`}>
                               <ShieldCheck className="w-3 h-3" />
-                              Lecturer Marked
+                              {sub.is_manual ? 'Lecturer Marked' : 'Auto-Graded'}
                             </div>
                             
                             <button

@@ -20,6 +20,7 @@ interface Submission {
   graded: boolean;
   is_manual: boolean;
   status?: 'draft' | 'submitted';
+  attempt_number?: number;
   submitted_at: string;
   violations_count?: number;
   marked_by_email?: string;
@@ -69,6 +70,7 @@ const Results: React.FC = () => {
             submitted_at,
             marked_by_email,
             marked_by_name,
+            attempt_number,
             student:students(student_number)
           `)
           .eq('exam_id', examId);
@@ -838,10 +840,10 @@ const Results: React.FC = () => {
                         <div>
                           <h3 className="text-xl font-black text-white font-outfit">{group.student?.student_number || 'Internal-ID'}</h3>
                           <div className="flex items-center gap-3 mt-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Attempt Profile</span>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Attempt #{latest.attempt_number || 1}</span>
                             {group.submissions.length > 1 && (
                               <span className="px-2 py-0.5 rounded-lg bg-accent/10 text-accent text-[9px] font-black uppercase tracking-widest border border-accent/20">
-                                {group.submissions.length} Sessions
+                                {group.submissions.length} Total Sessions
                               </span>
                             )}
                           </div>
@@ -933,7 +935,7 @@ const Results: React.FC = () => {
                                   <Calendar className="w-4 h-4" />
                                 </div>
                                 <div>
-                                  <p className="text-sm font-bold text-white/80">{format(new Date(sub.submitted_at), 'MMM d, yyyy · HH:mm')}</p>
+                                  <p className="text-sm font-bold text-white/80">Attempt #{sub.attempt_number || 1} — {format(new Date(sub.submitted_at), 'MMM d, yyyy · HH:mm')}</p>
                                   <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest mt-1">Archived Repository</p>
                                 </div>
                               </div>

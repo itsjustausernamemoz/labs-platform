@@ -7,41 +7,42 @@ export const useTabGuard = (
   examContainerRef?: React.RefObject<HTMLElement | null>
 ) => {
   const onViolationRef = useRef(onViolation);
+  const lastViolationTime = useRef(0);
+  const violationThrottleMs = 1000; // 1 second ignore period after a violation
 
   useEffect(() => {
     onViolationRef.current = onViolation;
   }, [onViolation]);
 
   useEffect(() => {
-    console.log('useTabGuard: Initializing listeners...');
+    console.log('useTabGuard: Initializing listeners with throttle...');
 
     const triggerViolation = (type: ViolationType) => {
+      const now = Date.now();
+      if (now - lastViolationTime.current < violationThrottleMs) {
+        console.log(`useTabGuard: Throttling duplicate violation [${type}]`);
+        return;
+      }
+      lastViolationTime.current = now;
       console.warn(`useTabGuard: VIOLATION DETECTED [${type}]`);
       onViolationRef.current(type);
     };
 
     // --- Tab switch / visibility ---
     const handleVisibilityChange = () => {
-      console.log('useTabGuard: visibilitychange - state:', document.visibilityState);
       if (document.visibilityState === 'hidden' || document.hidden) {
         triggerViolation('tab_switch');
       }
     };
 
-    // --- Window blur (click outside browser, OS Alt+Tab, etc.) ---
-    const handleBlur = (e: any) => {
-      console.log('useTabGuard: blur event detected', e);
+    // --- Window blur ---
+    const handleBlur = () => {
       triggerViolation('blur');
     };
 
-    const handleFocus = () => {
-      console.log('useTabGuard: focus returned');
-    };
-
-    // --- Cursor exits the browser viewport entirely ---
+    // --- Cursor exits the browser viewport ---
     const handleDocumentMouseLeave = (e: MouseEvent) => {
       if (e.relatedTarget === null) {
-        console.log('useTabGuard: cursor exited viewport');
         triggerViolation('cursor_exit');
       }
     };
@@ -49,21 +50,6 @@ export const useTabGuard = (
     document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('mouseleave', handleDocumentMouseLeave);
     window.addEventListener('blur', handleBlur);
-    window.addEventListener('focus', handleFocus);
-
-    // Safari compatibility
-    const oldOnBlur = window.onblur;
-    const oldOnFocus = window.onfocus;
-
-    window.onblur = (e) => {
-      handleBlur(e);
-      if (typeof oldOnBlur === 'function') oldOnBlur.apply(window, [e]);
-    };
-
-    window.onfocus = (e) => {
-      handleFocus();
-      if (typeof oldOnFocus === 'function') oldOnFocus.apply(window, [e]);
-    };
 
     // --- Cursor exits the exam container element (if provided) ---
     let containerLeaveHandler: ((e: MouseEvent) => void) | null = null;
@@ -71,9 +57,7 @@ export const useTabGuard = (
 
     if (container) {
       containerLeaveHandler = (e: MouseEvent) => {
-        // Only fire if the new target is outside the container
         if (!container.contains(e.relatedTarget as Node)) {
-          console.log('useTabGuard: cursor exited exam screen container');
           triggerViolation('cursor_exit');
         }
       };
@@ -84,9 +68,6 @@ export const useTabGuard = (
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       document.removeEventListener('mouseleave', handleDocumentMouseLeave);
       window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('focus', handleFocus);
-      window.onblur = oldOnBlur;
-      window.onfocus = oldOnFocus;
       if (container && containerLeaveHandler) {
         container.removeEventListener('mouseleave', containerLeaveHandler);
       }

@@ -7,7 +7,7 @@ import TabGuard from '../components/TabGuard';
 import QuestionRenderer from '../components/QuestionRenderer';
 import type { Question } from '../components/QuestionRenderer';
 import Timer from '../components/Timer';
-import { Send, Shield, AlertTriangle, Loader2, MousePointer, ClipboardCopy, Save, FileDown } from 'lucide-react';
+import { Send, Shield, AlertTriangle, Loader2, MousePointer, ClipboardCopy, Save, FileDown, Clock } from 'lucide-react';
 import { useNotification } from '../components/NotificationProvider';
 import { jsPDF } from 'jspdf';
 
@@ -23,6 +23,8 @@ const ExamRoom: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentSubmissionId, setCurrentSubmissionId] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [attemptNumber, setAttemptNumber] = useState(1);
   const [isJittering, setIsJittering] = useState(false);
   const [jitterMessage, setJitterMessage] = useState('Finalizing Submission.');
   const retryCount = useRef(0);
@@ -185,6 +187,29 @@ const ExamRoom: React.FC = () => {
     };
   }, [isSubmitting, showToast]);
 
+  const seededShuffle = (array: any[], seed: string) => {
+    if (!seed) return array;
+    // Simple hash for the seed string
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+      hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+      hash |= 0; // Convert to 32bit integer
+    }
+    
+    let state = Math.abs(hash);
+    const nextInt = () => {
+      state = (state * 1103515245 + 12345) & 0x7fffffff;
+      return state;
+    };
+
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = nextInt() % (i + 1);
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
   const [examEndTime, setExamEndTime] = useState<number | null>(null);
 
   const fetchExamData = async () => {
@@ -219,31 +244,43 @@ const ExamRoom: React.FC = () => {
         return;
       }
 
-      // 3. Check for existing submission (Draft or Final)
-      // We use maybeSingle and order to handle potential historical duplicates safely
-      const { data: existingSub, error: subError } = await supabase
+      // 3. Check for existing submissions (Multi-Attempt Support)
+      const { data: allSubs, error: subError } = await supabase
         .from('submissions')
         .select('*')
         .eq('exam_id', examId)
         .eq('student_id', studentData.id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('attempt_number', { ascending: false });
 
-      if (subError) {
-        console.error('Error fetching submission:', subError);
-      }
+      if (subError) console.error('Error fetching submissions:', subError);
 
-      if (existingSub) {
-        setCurrentSubmissionId(existingSub.id);
-        if (existingSub.status === 'draft') {
+      const latestSub = allSubs?.[0];
+      const attemptCount = allSubs?.length || 0;
+
+      if (latestSub) {
+        if (latestSub.status === 'draft') {
           console.log('ExamRoom: Resumed from draft session.');
-          setAnswers(existingSub.answers || {});
+          setCurrentSubmissionId(latestSub.id);
+          setAnswers(latestSub.answers || {});
+          setAttemptNumber(latestSub.attempt_number || 1);
         } else {
-          showToast('You have already submitted this examination.', 'error');
-          navigate('/dashboard');
-          return;
+          // Latest is submitted. Can we start a new one?
+          const maxAllowed = examData.allowed_attempts || 1;
+          if (attemptCount < maxAllowed) {
+            const nextAttempt = attemptCount + 1;
+            console.log(`ExamRoom: Starting new attempt #${nextAttempt}`);
+            setAttemptNumber(nextAttempt);
+            // Fresh start for the timer as well
+            localStorage.removeItem(`exam_start_${examId}`);
+            setAnswers({});
+          } else {
+            showToast('Maximum attempts reached for this examination.', 'error');
+            navigate('/dashboard');
+            return;
+          }
         }
+      } else {
+        setAttemptNumber(1);
       }
 
       // 4. Handle Timer Persistence
@@ -266,7 +303,10 @@ const ExamRoom: React.FC = () => {
         .order('order_index', { ascending: true });
 
       if (qError) throw qError;
-      setQuestions(questionData || []);
+      
+      // Randomize questions for this student
+      const randomizedQuestions = seededShuffle(questionData || [], studentData.id);
+      setQuestions(randomizedQuestions);
 
       // 6. Fetch Violation Count
       const { count: dbViolationCount } = await supabase
@@ -333,9 +373,10 @@ const ExamRoom: React.FC = () => {
         .from('submissions')
         .upsert({
           ...submissionData,
+          attempt_number: attemptNumber,
           id: currentSubmissionId || undefined // Use ID if we have it, otherwise let onConflict handle it
         }, { 
-          onConflict: 'exam_id,student_id',
+          onConflict: 'exam_id,student_id,attempt_number',
           ignoreDuplicates: false 
         })
         .select('id')
@@ -384,20 +425,36 @@ const ExamRoom: React.FC = () => {
   const calculateAutoScore = (currentAnswers: Record<string, string>) => {
     let score = 0;
     let hasStructured = false;
+    const markingDetails: Record<string, any> = {};
     
     questions.forEach(q => {
       if (q.type === 'mcq') {
         const studentAns = currentAnswers[q.id];
         const correctAns = q.correct_answer;
-        if (studentAns && correctAns && studentAns.trim().toUpperCase() === correctAns.trim().toUpperCase()) {
+        // Ultra-lenient: Ignore all whitespace and case
+          const stud = (studentAns || '').replace(/\s+/g, '').toUpperCase();
+          const corr = (q.correct_answer || '').replace(/\s+/g, '').toUpperCase();
+          // Lenient matching: Compare letter or check if corr starts with stud letter (e.g. "A" vs "A. Option")
+          const isCorrect = stud === corr || (stud.length === 1 && (corr.startsWith(stud + ".") || corr.startsWith(stud + " ")));
+        
+        if (isCorrect) {
           score += q.marks;
+          markingDetails[q.id] = { 
+            awarded_marks: q.marks, 
+            feedback: `Correct [${studentAns}] (Auto-Marked).` 
+          };
+        } else {
+          markingDetails[q.id] = { 
+            awarded_marks: 0, 
+            feedback: studentAns ? `Incorrect [${studentAns}]. Expected [${correctAns}]` : "No answer provided." 
+          };
         }
       } else {
         hasStructured = true;
       }
     });
     
-    return { score, hasStructured };
+    return { score, hasStructured, markingDetails };
   };
 
   const submitWithZeroScore = async () => {
@@ -418,6 +475,7 @@ const ExamRoom: React.FC = () => {
 
     try {
       const totalMarks = questions.reduce((acc, q) => acc + q.marks, 0);
+      const { score: autoScore, markingDetails: autoMarkingDetails } = calculateAutoScore(answers);
 
       const submissionData = {
         exam_id: examId,
@@ -429,7 +487,12 @@ const ExamRoom: React.FC = () => {
         is_manual: false,
         status: 'submitted' as const,
         marking_details: { 
-          violation: { awarded_marks: 0, feedback: "Automatic zero due to maximum tab/blur violations." } 
+          ...autoMarkingDetails,
+          violation_audit: { 
+            awarded_marks: 0, 
+            original_auto_score: autoScore, 
+            feedback: `Automatic zero due to maximum violations (${violationCount}/${maxViolations}).` 
+          } 
         }
       };
 
@@ -437,8 +500,9 @@ const ExamRoom: React.FC = () => {
         .from('submissions')
         .upsert({
           ...submissionData,
+          attempt_number: attemptNumber,
           id: currentSubmissionId || undefined
-        }, { onConflict: 'exam_id,student_id' });
+        }, { onConflict: 'exam_id,student_id,attempt_number' });
 
       if (subError) throw subError;
       localStorage.removeItem(`exam_start_${examId}`);
@@ -458,7 +522,9 @@ const ExamRoom: React.FC = () => {
 
     try {
       const totalMarks = questions.reduce((acc, q) => acc + q.marks, 0);
-      const { score: autoScore, hasStructured } = calculateAutoScore(answers);
+      const { score: autoScore, hasStructured, markingDetails: autoMarkingDetails } = calculateAutoScore(answers);
+      const isMcqOnly = exam?.exam_type === 'mcq_only';
+      const isGraded = isMcqOnly || !hasStructured;
 
       const submissionData = {
         exam_id: examId,
@@ -466,20 +532,24 @@ const ExamRoom: React.FC = () => {
         answers: answers,
         total_marks: totalMarks,
         score: autoScore,
-        graded: !hasStructured, // Only fully graded if no essay questions
+        graded: isGraded, 
         is_manual: false,
         status: 'submitted' as const,
-        marking_details: hasStructured 
-          ? { note: "Structured questions require manual marking." } 
-          : { note: "Automatically graded (MCQ/TF)." }
+        marking_details: {
+          ...autoMarkingDetails,
+          ...(!isGraded 
+            ? { note: "Structured questions require manual or AI marking." } 
+            : { note: "Automatically graded (MCQ Only)." })
+        }
       };
 
       const { error: subError } = await supabase
         .from('submissions')
         .upsert({
           ...submissionData,
+          attempt_number: attemptNumber,
           id: currentSubmissionId || undefined
-        }, { onConflict: 'exam_id,student_id' });
+        }, { onConflict: 'exam_id,student_id,attempt_number' });
 
       if (subError) throw subError;
 
@@ -665,8 +735,8 @@ const ExamRoom: React.FC = () => {
       )}
 
       {/* Main Content */}
-      <main ref={examContainerRef} className="max-w-4xl mx-auto pt-24 pb-32 px-6">
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-8 flex items-start gap-3">
+      <main ref={examContainerRef} className="max-w-7xl mx-auto pt-24 pb-32 px-6">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-12 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
           <p className="text-sm text-red-200">
             <span className="font-bold text-red-500 uppercase">Warning:</span> All activity is being monitored.
@@ -675,56 +745,143 @@ const ExamRoom: React.FC = () => {
           </p>
         </div>
 
-        {questions.map((q, index) => (
-          <QuestionRenderer
-            key={q.id}
-            question={q}
-            index={index}
-            answer={answers[q.id]}
-            onChange={(val) => setAnswers({ ...answers, [q.id]: val })}
-          />
-        ))}
-
-        <div className="flex flex-col items-center gap-4 mt-12">
-          {/* Copy allowed questions — for IDE-based questions */}
-          {questions.some(q => (q as any).can_copy) && (
-            <button
-              onClick={handleCopyAllowedQuestions}
-              className="group flex items-center gap-2 bg-white/5 text-panel/60 border border-white/10 px-6 py-3 rounded-xl font-bold text-sm hover:bg-white/10 hover:text-white hover:border-white/20 transition-all"
-              title="Copy the designated questions to your clipboard"
-            >
-              <ClipboardCopy className="w-4 h-4" />
-              Copy Copyable Questions
-            </button>
-          )}
-
-          <button
-            onClick={handleConfirmSubmit}
-            disabled={isSubmitting}
-            className="group flex items-center gap-3 bg-accent text-primary px-10 py-4 rounded-xl font-bold text-lg hover:bg-accent/90 transition-all shadow-[0_0_20px_rgba(0,229,255,0.3)] disabled:opacity-50"
-          >
-            {isSubmitting ? (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+          {/* Main Question Column */}
+          <div className="lg:col-span-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {questions.length > 0 && (
               <>
-                <Loader2 className="w-6 h-6 animate-spin" />
-                Submitting...
-              </>
-            ) : (
-              <>
-                Submit Examination
-                <Send className="w-5 h-5 group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-accent font-black text-xs uppercase tracking-[0.2em]">Question</span>
+                    <span className="text-2xl font-black">{currentQuestionIndex + 1}</span>
+                    <span className="text-panel/40 font-black text-2xl">/ {questions.length}</span>
+                  </div>
+                  <div className="md:hidden text-xs font-bold text-panel/40 uppercase tracking-widest">
+                    Attempt {attemptNumber}
+                  </div>
+                </div>
+
+                <QuestionRenderer
+                  key={questions[currentQuestionIndex].id}
+                  question={questions[currentQuestionIndex]}
+                  index={currentQuestionIndex}
+                  answer={answers[questions[currentQuestionIndex].id]}
+                  onChange={(val) => setAnswers({ ...answers, [questions[currentQuestionIndex].id]: val })}
+                />
+
+                {/* Pagination Controls */}
+                <div className="flex justify-between items-center bg-white/5 border border-white/10 p-4 rounded-2xl gap-4">
+                  <button
+                    onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
+                    disabled={currentQuestionIndex === 0}
+                    className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-white/5 border border-white/10 hover:bg-white/10 transition-all disabled:opacity-20 disabled:cursor-not-allowed group"
+                  >
+                    <div className="w-5 h-5 flex items-center justify-center rounded bg-white/5 group-hover:bg-white/10">←</div>
+                    Previous
+                  </button>
+
+                  <div className="flex-1 flex overflow-x-auto gap-2 px-4 no-scrollbar items-center justify-center">
+                    <span className="lg:hidden text-[10px] font-black text-panel/30 uppercase tracking-[0.2em]">Navigator Below</span>
+                  </div>
+
+                  {currentQuestionIndex < questions.length - 1 ? (
+                    <button
+                      onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
+                      className="flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-accent text-primary hover:bg-accent/90 transition-all group"
+                    >
+                      Next Question
+                      <div className="w-5 h-5 flex items-center justify-center rounded bg-primary/10 group-hover:bg-primary/20">→</div>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleConfirmSubmit}
+                      disabled={isSubmitting}
+                      className="flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-green-500 text-primary hover:bg-green-600 transition-all shadow-[0_0_20px_rgba(34,197,94,0.3)] disabled:opacity-50"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Submitting...
+                        </>
+                      ) : (
+                        <>
+                          Final Submission
+                          <Send className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
               </>
             )}
-          </button>
-          
-          <button
-            onClick={handleDownloadBackupScript}
-            disabled={isSubmitting || questions.length === 0}
-            className="group flex items-center gap-2 text-panel/40 hover:text-white transition-colors mt-4 text-sm font-medium border border-transparent hover:border-white/10 px-4 py-2 rounded-lg"
-            title="Download a local text copy of your answers in case of system failure"
-          >
-            <FileDown className="w-4 h-4" />
-            Download Backup Script
-          </button>
+          </div>
+
+          {/* Sidebar Jumper Column */}
+          <aside className="lg:col-span-4 space-y-6 lg:sticky lg:top-32">
+            <div className="glass-panel p-6 rounded-[2rem] border border-white/10 space-y-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-black text-accent uppercase tracking-[0.2em]">Navigation</h3>
+                <div className="px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] font-black text-panel/40 uppercase">
+                  {Object.keys(answers).length} / {questions.length} Solved
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-2">
+                {questions.map((q, idx) => {
+                  const isCurrent = idx === currentQuestionIndex;
+                  const isAnswered = !!answers[q.id];
+                  
+                  return (
+                    <button
+                      key={q.id}
+                      onClick={() => setCurrentQuestionIndex(idx)}
+                      className={`h-10 rounded-xl text-xs font-black transition-all border flex items-center justify-center ${
+                        isCurrent 
+                        ? 'bg-accent text-primary border-accent shadow-[0_0_15px_rgba(0,229,255,0.3)] scale-110 z-10' 
+                        : isAnswered 
+                          ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20' 
+                          : 'bg-white/5 text-panel/40 border-white/5 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {idx + 1}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="pt-4 border-t border-white/5 flex flex-col gap-4">
+                {questions.some(q => (q as any).can_copy) && (
+                  <button
+                    onClick={handleCopyAllowedQuestions}
+                    className="w-full flex items-center justify-center gap-2 bg-white/5 text-panel/60 border border-white/5 px-4 py-3 rounded-xl font-bold text-xs hover:bg-white/10 hover:text-white transition-all underline decoration-accent/30 underline-offset-4"
+                  >
+                    <ClipboardCopy className="w-3.5 h-3.5 text-accent" />
+                    Copy Lab Prompts
+                  </button>
+                )}
+                
+                <button
+                  onClick={handleDownloadBackupScript}
+                  disabled={isSubmitting || questions.length === 0}
+                  className="w-full flex items-center justify-center gap-2 text-panel/30 hover:text-panel/60 transition-colors py-2 text-[10px] font-black uppercase tracking-widest"
+                >
+                  <FileDown className="w-3 h-3" />
+                  Save Local Backup
+                </button>
+              </div>
+            </div>
+
+            {/* Hint Panel */}
+            <div className="bg-[#00E5FF]/5 border border-[#00E5FF]/10 rounded-2xl p-5">
+              <div className="flex items-center gap-3 mb-2 text-[#00E5FF]">
+                <Clock className="w-4 h-4" />
+                <span className="text-xs font-black uppercase tracking-widest">Pro-Tip</span>
+              </div>
+              <p className="text-[11px] text-[#00E5FF]/60 font-medium leading-relaxed">
+                You can jump between questions at any time. Your progress is automatically synced as you navigate.
+              </p>
+            </div>
+          </aside>
         </div>
       </main>
 

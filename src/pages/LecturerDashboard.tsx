@@ -3,17 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
   Plus, FileUp, Trash2, Eye, EyeOff,
-  BarChart3, LogOut, Loader2, FileText,
   Save, Edit3, UserPlus, ShieldCheck, Download,
-  User, X, Lock, Clock, Mail, RotateCcw
+  User, X, Lock, Clock, RotateCcw, Copy,
+  BarChart3, LogOut, Loader2, Settings
 } from 'lucide-react';
-import mammoth from 'mammoth';
-import * as pdfjsLib from 'pdfjs-dist';
 import * as XLSX from 'xlsx';
 import { useNotification } from '../components/NotificationProvider';
 
-// Configure PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 interface Exam {
   id: string;
@@ -23,7 +19,9 @@ interface Exam {
   created_at: string;
   total_marks?: number;
   allowed_violations?: number;
+  allowed_attempts: number;
   enrollment_code: string;
+  exam_type: 'mcq_only' | 'structured_only' | 'mixed';
 }
 
 interface LecturerProfile {
@@ -63,9 +61,11 @@ const LecturerDashboard: React.FC = () => {
     duration: 60,
     total_marks: 100,
     allowed_violations: 3,
-    enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase()
+    allowed_attempts: 1,
+    enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+    exam_type: 'mixed' as 'mcq_only' | 'structured_only' | 'mixed'
   });
-  const [uploadingExamId, setUploadingExamId] = useState<string | null>(null);
+  const [editingSettings, setEditingSettings] = useState<ExamWithStats | null>(null);
   const [editingExamQuestions, setEditingExamQuestions] = useState<ExamWithStats | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [isSavingQuestions, setIsSavingQuestions] = useState(false);
@@ -177,7 +177,6 @@ const LecturerDashboard: React.FC = () => {
     }
 
     try {
-      // Fetch exam list (no embedded submissions — we count separately)
       const { data: ownExams, error: ownError } = await supabase
         .from('exams')
         .select('*')
@@ -185,9 +184,6 @@ const LecturerDashboard: React.FC = () => {
 
       if (ownError) throw ownError;
 
-      // For each exam, fetch total and graded submission counts in parallel.
-      // Using server-side COUNT avoids shipping 1000+ rows to the browser
-      // when a large exam is running.
       const examsWithStats: ExamWithStats[] = await Promise.all(
         (ownExams || []).map(async (exam) => {
           const [totalResult, gradedResult, submissionsResult] = await Promise.all([
@@ -273,7 +269,8 @@ const LecturerDashboard: React.FC = () => {
           lecturer_id: user.id,
           total_marks: newExam.total_marks,
           allowed_violations: newExam.allowed_violations,
-          enrollment_code: newExam.enrollment_code
+          enrollment_code: newExam.enrollment_code,
+          exam_type: newExam.exam_type
         }])
         .select()
         .single();
@@ -293,12 +290,14 @@ const LecturerDashboard: React.FC = () => {
         duration: 60, 
         total_marks: 100,
         allowed_violations: 3,
-        enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase()
+        allowed_attempts: 1,
+        enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+        exam_type: 'mixed'
       });
       showToast('Exam created successfully!', 'success');
     } catch (err: any) {
       console.error('Error creating exam:', err);
-      showToast(err.message || 'Failed to create exam. Please check your connection and try again.', 'error');
+      showToast(err.message || 'Failed to create exam.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -350,7 +349,6 @@ const LecturerDashboard: React.FC = () => {
     setIsSavingQuestions(true);
 
     try {
-      // Delete existing questions
       const { error: delError } = await supabase
         .from('questions')
         .delete()
@@ -358,7 +356,6 @@ const LecturerDashboard: React.FC = () => {
 
       if (delError) throw delError;
 
-      // Insert updated questions
       const toInsert = questions.map((q, idx) => {
         const { id, ...rest } = q;
         return {
@@ -399,11 +396,10 @@ const LecturerDashboard: React.FC = () => {
         .filter(num => num);
 
       if (studentNumbers.length === 0) {
-        showToast('No student numbers found in the Excel file. Please ensure there is a "student_number" column.', 'error');
+        showToast('No student numbers found.', 'error');
         return;
       }
 
-      // 1. Bulk upsert students to ensure they exist
       const uniqueStudentNumbers = [...new Set(studentNumbers)];
       const studentsToUpsert = uniqueStudentNumbers.map(num => ({ student_number: num }));
       const { data: upsertedStudents, error: upsertError } = await supabase
@@ -413,7 +409,6 @@ const LecturerDashboard: React.FC = () => {
 
       if (upsertError) throw upsertError;
 
-      // 2. Bulk enroll students
       const enrollmentsToUpsert = (upsertedStudents || []).map(s => ({
         exam_id: examId,
         student_id: s.id
@@ -447,29 +442,32 @@ const LecturerDashboard: React.FC = () => {
       const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
 
       const mappedQuestions = jsonData.map((row, idx) => {
-        const type = (row.type || 'mcq').toLowerCase().includes('mcq') ? 'mcq' : 'structured';
+        const getVal = (keys: string[]) => {
+          const foundKey = Object.keys(row).find(k => keys.includes(k.trim().toLowerCase()));
+          return foundKey ? row[foundKey] : undefined;
+        };
+
+        const typeRaw = (getVal(['type']) || 'mcq').toString().toLowerCase();
+        const type = typeRaw.includes('structured') ? 'structured' : 'mcq';
+        
         const options = type === 'mcq' ? [
-          row.option_a || '',
-          row.option_b || '',
-          row.option_c || '',
-          row.option_d || ''
-        ].filter(opt => opt !== '') : null;
+          getVal(['option_a', 'a', 'option a']),
+          getVal(['option_b', 'b', 'option b']),
+          getVal(['option_c', 'c', 'option c']),
+          getVal(['option_d', 'd', 'option d'])
+        ].map(v => v?.toString() || '').filter(opt => opt !== '') : null;
 
         return {
           exam_id: examId,
+          question_text: getVal(['question_text', 'question', 'text'])?.toString() || `Question ${idx + 1}`,
           type,
-          question_text: row.question_text || `Question ${idx + 1}`,
           options,
-          correct_answer: row.correct_answer?.toString() || '',
-          marks: parseInt(row.marks) || 1,
-          can_copy: row.can_copy === 'TRUE' || row.can_copy === true || false,
+          correct_answer: getVal(['correct_answer', 'answer', 'correct answer', 'correct'])?.toString() || '',
+          marks: parseInt(getVal(['marks', 'mark', 'score', 'weight'])?.toString() || '1') || 1,
+          can_copy: getVal(['can_copy', 'copyable', 'allow copy'])?.toString().toLowerCase() === 'true',
           order_index: idx
         };
       });
-
-      if (mappedQuestions.length === 0) {
-        throw new Error('No valid questions found in Excel.');
-      }
 
       const { error: delError } = await supabase.from('questions').delete().eq('exam_id', examId);
       if (delError) throw delError;
@@ -477,10 +475,8 @@ const LecturerDashboard: React.FC = () => {
       const { error: insError } = await supabase.from('questions').insert(mappedQuestions);
       if (insError) throw insError;
 
-      showToast(`${mappedQuestions.length} questions uploaded successfully!`, 'success');
-      if (editingExamQuestions?.id === examId) {
-        fetchQuestions(examId);
-      }
+      showToast(`${mappedQuestions.length} questions uploaded!`, 'success');
+      if (editingExamQuestions?.id === examId) fetchQuestions(examId);
     } catch (err: any) {
       console.error('Error uploading questions Excel:', err);
       showToast(err.message || 'Failed to upload questions', 'error');
@@ -536,46 +532,32 @@ const LecturerDashboard: React.FC = () => {
     });
   };
 
-  const handleFileUpload = async (examId: string, event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
 
-    setUploadingExamId(examId);
+
+  const handleUpdateExamSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSettings) return;
+    setIsSubmitting(true);
     try {
-      let text = '';
-      if (file.type === 'application/pdf') {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const pagePromises = Array.from({ length: pdf.numPages }, (_, i) => 
-          pdf.getPage(i + 1).then(async (page) => {
-            const content = await page.getTextContent();
-            return content.items.map((item: any) => item.str).join(' ');
-          })
-        );
-        const pagesText = await Promise.all(pagePromises);
-        text = pagesText.join('\n');
-      } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        text = result.value;
-      } else {
-        text = await file.text();
-      }
+      const { error } = await supabase
+        .from('exams')
+        .update({
+          title: editingSettings.title,
+          duration_minutes: editingSettings.duration_minutes,
+          allowed_violations: editingSettings.allowed_violations,
+          allowed_attempts: editingSettings.allowed_attempts,
+          exam_type: editingSettings.exam_type
+        })
+        .eq('id', editingSettings.id);
 
-      if (!text.trim()) throw new Error('Could not extract text from file.');
-
-      const { data, error } = await supabase.functions.invoke('extract-questions', {
-        body: { examId, text }
-      });
-
-      if (error || data?.error) throw new Error(error?.message || data?.error);
-      
-      showToast('Questions extracted successfully!', 'success');
-      if (editingExamQuestions?.id === examId) fetchQuestions(examId);
+      if (error) throw error;
+      setExams(exams.map(ex => ex.id === editingSettings.id ? editingSettings : ex));
+      setEditingSettings(null);
+      showToast('Settings updated successfully!', 'success');
     } catch (err: any) {
-      showToast(err.message || 'Failed to process file.', 'error');
+      showToast(err.message, 'error');
     } finally {
-      setUploadingExamId(null);
+      setIsSubmitting(false);
     }
   };
 
@@ -586,12 +568,6 @@ const LecturerDashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0A1024] text-white font-sans selection:bg-accent/30 selection:text-white">
-      {/* Background decoration */}
-      <div className="fixed top-0 left-0 w-full h-full pointer-events-none opacity-40">
-        <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/5 rounded-full blur-[120px] animate-pulse-subtle" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[50%] h-[50%] bg-accent/5 rounded-full blur-[120px] animate-pulse-subtle" style={{ animationDelay: '-3s' }} />
-      </div>
-
       <nav className="sticky top-0 z-50 glass-panel border-x-0 border-t-0 px-6 py-4">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3 group cursor-pointer" onClick={() => navigate('/lecturer/dashboard')}>
@@ -604,144 +580,53 @@ const LecturerDashboard: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <div className="hidden md:flex flex-col items-end mr-2">
-              <span className="text-[10px] text-white/30 font-bold uppercase tracking-widest leading-none mb-1">Session Active</span>
-              <span className="text-xs font-bold text-white/60">{profile?.email}</span>
-            </div>
-            <button 
-              onClick={handleLogout} 
-              className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-red-500/10 hover:border-red-500/20 hover:text-red-400 transition-all"
-              title="Logout"
-            >
+            <button onClick={handleLogout} className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-red-500/10 hover:text-red-400 transition-all">
               <LogOut className="w-5 h-5" />
             </button>
           </div>
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-6 py-12 relative z-10">
+      <main className="max-w-7xl mx-auto px-6 py-12">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 mb-16">
           <div className="space-y-2">
-            <h1 className="text-5xl font-black tracking-tight font-outfit">
-              Dashboard
-            </h1>
-            <p className="text-white/40 text-lg max-w-2xl">
-              Manage your academic assessments, track marking progress, and coordinate with co-markers.
-            </p>
+            <h1 className="text-5xl font-black tracking-tight font-outfit">Dashboard</h1>
+            <p className="text-white/40 text-lg max-w-2xl">Manage your academic assessments, track marking progress, and coordinate with co-markers.</p>
           </div>
           <div className="flex flex-wrap gap-4">
-            <button
-              onClick={() => setIsEditingProfile(true)}
-              className="glass-button bg-white/5 text-white border-white/10 px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-white/10 transition-all shadow-xl"
-            >
-              <User className="w-5 h-5 text-accent" />
-              Settings
+            <button onClick={() => setIsEditingProfile(true)} className="glass-button bg-white/5 text-white border-white/10 px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-white/10 transition-all shadow-xl">
+              <User className="w-5 h-5 text-accent" /> Settings
             </button>
-            <button
-              onClick={() => setIsCreating(true)}
-              className="glass-button bg-accent text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:shadow-[0_0_30px_rgba(0,229,255,0.3)] transition-all"
-            >
-              <Plus className="w-6 h-6" />
-              Create Examination
+            <button onClick={() => setIsCreating(true)} className="glass-button bg-accent text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-xl">
+              <Plus className="w-6 h-6" /> Create Examination
             </button>
           </div>
         </div>
 
         {isEditingProfile && (
           <div className="fixed inset-0 bg-[#0A1024]/80 backdrop-blur-xl flex items-center justify-center z-[100] p-6 animate-in fade-in duration-300">
-            <div className="glass-panel max-w-xl w-full p-10 rounded-[3rem] shadow-2xl relative overflow-hidden">
-              {/* Decorative element inside modal */}
-              <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 rounded-full blur-3xl -mr-16 -mt-16" />
-              
-              <div className="flex justify-between items-center mb-10 relative z-10">
-                <div>
-                  <h2 className="text-3xl font-black tracking-tight font-outfit">Security & Profile</h2>
-                  <p className="text-white/40 text-xs font-bold uppercase tracking-widest mt-1">Laboratory Access Control</p>
-                </div>
-                <button 
-                  onClick={() => setIsEditingProfile(false)} 
-                  className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition-all group"
-                >
-                  <X className="w-6 h-6 text-white/30 group-hover:text-white transition-colors" />
-                </button>
+            <div className="glass-panel max-w-xl w-full p-10 rounded-[3rem] shadow-2xl relative">
+              <div className="flex justify-between items-center mb-10">
+                <h2 className="text-3xl font-black tracking-tight font-outfit">Security & Profile</h2>
+                <button onClick={() => setIsEditingProfile(false)} className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10"><X className="w-6 h-6 text-white/30" /></button>
               </div>
-
-              <form onSubmit={handleUpdateProfile} className="space-y-8 relative z-10">
+              <form onSubmit={handleUpdateProfile} className="space-y-8">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-accent/60 uppercase tracking-[0.2em] ml-1">Full Name</label>
-                    <div className="relative group">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/20 group-focus-within:text-accent transition-colors" />
-                      <input
-                        type="text"
-                        required
-                        value={editedName}
-                        onChange={(e) => setEditedName(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 focus:bg-white/[0.08] transition-all font-bold text-white placeholder:text-white/10"
-                        placeholder="Administrator Name"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] ml-1">Email (ReadOnly)</label>
-                    <div className="relative grayscale opacity-50">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/20" />
-                      <input
-                        type="email"
-                        disabled
-                        value={profile?.email || ''}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 cursor-not-allowed font-bold text-white/40"
-                      />
-                    </div>
-                  </div>
+                  <input type="text" required value={editedName} onChange={(e) => setEditedName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white" placeholder="Full Name" />
+                  <input type="email" disabled value={profile?.email || ''} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 opacity-50 cursor-not-allowed" />
                 </div>
-
-                <div className="space-y-6 pt-8 border-t border-white/5">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                      <Lock className="w-4 h-4 text-accent" />
-                    </div>
-                    <span className="text-xs font-black uppercase tracking-widest text-accent">Credential Management</span>
-                  </div>
-                  
+                <div className="space-y-4 pt-8 border-t border-white/5">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white placeholder:text-white/20 text-sm"
-                      placeholder="New Password"
-                    />
-                    <input
-                      type="password"
-                      value={confirmNewPassword}
-                      onChange={(e) => setConfirmNewPassword(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white placeholder:text-white/20 text-sm"
-                      placeholder="Confirm Password"
-                    />
+                    <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white text-sm" placeholder="New Password" />
+                    <input type="password" value={confirmNewPassword} onChange={(e) => setConfirmNewPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white text-sm" placeholder="Confirm Password" />
                   </div>
-                  
-                  <button
-                    type="button"
-                    onClick={handleUpdatePassword}
-                    disabled={isUpdatingPassword || !newPassword}
-                    className="w-full glass-button bg-white/5 text-white border-white/10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/10 disabled:opacity-30 transition-all flex items-center justify-center gap-3"
-                  >
-                    {isUpdatingPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5 text-accent" />}
-                    Update Secure Password
+                  <button type="button" onClick={handleUpdatePassword} disabled={isUpdatingPassword || !newPassword} className="w-full glass-button bg-white/5 text-white border-white/10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-3">
+                    {isUpdatingPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5 text-accent" />} Update Password
                   </button>
                 </div>
-                
-                <div className="flex gap-4 pt-4">
-                  <button
-                    type="submit"
-                    disabled={isSavingProfile}
-                    className="flex-1 glass-button bg-white text-[#0A1024] py-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-[1.02] shadow-xl flex items-center justify-center gap-3"
-                  >
-                    {isSavingProfile ? <Loader2 className="w-6 h-6 animate-spin" /> : <Save className="w-6 h-6" />}
-                    Save Profile Changes
-                  </button>
-                </div>
+                <button type="submit" disabled={isSavingProfile} className="w-full glass-button bg-white text-[#0A1024] py-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all flex items-center justify-center gap-3">
+                  {isSavingProfile ? <Loader2 className="w-6 h-6 animate-spin" /> : <Save className="w-6 h-6" />} Save Profile
+                </button>
               </form>
             </div>
           </div>
@@ -755,10 +640,7 @@ const LecturerDashboard: React.FC = () => {
                   <h2 className="text-3xl font-black tracking-tight font-outfit text-white">New Assessment</h2>
                   <p className="text-accent/60 text-[10px] font-black uppercase tracking-[0.2em] mt-1">Configure Examination Parameters</p>
                 </div>
-                <button 
-                  onClick={() => setIsCreating(false)} 
-                  className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition-all group"
-                >
+                <button onClick={() => setIsCreating(false)} className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition-all group">
                   <X className="w-6 h-6 text-white/30 group-hover:text-white transition-colors" />
                 </button>
               </div>
@@ -766,14 +648,7 @@ const LecturerDashboard: React.FC = () => {
               <form onSubmit={handleCreateExam} className="space-y-8">
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Examination Title</label>
-                  <input
-                    type="text" 
-                    required 
-                    placeholder="e.g., Computer Science 101 Final"
-                    value={newExam.title} 
-                    onChange={(e) => setNewExam({ ...newExam, title: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-5 outline-none focus:border-accent/50 focus:bg-white/[0.08] transition-all font-bold text-lg text-white placeholder:text-white/10"
-                  />
+                  <input type="text" required placeholder="e.g., Computer Science 101 Final" value={newExam.title} onChange={(e) => setNewExam({ ...newExam, title: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-5 outline-none focus:border-accent/50 focus:bg-white/[0.08] transition-all font-bold text-lg text-white" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-6">
@@ -781,64 +656,57 @@ const LecturerDashboard: React.FC = () => {
                     <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Duration (Minutes)</label>
                     <div className="relative">
                       <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                      <input 
-                        type="number" 
-                        required 
-                        value={newExam.duration} 
-                        onChange={(e) => setNewExam({ ...newExam, duration: parseInt(e.target.value) || 60 })} 
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white shadow-inner"
-                      />
+                      <input type="number" required value={newExam.duration} onChange={(e) => setNewExam({ ...newExam, duration: parseInt(e.target.value) || 60 })} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white shadow-inner" />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Enrollment Code</label>
                     <div className="relative">
                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                      <input 
-                        type="text" 
-                        required 
-                        value={newExam.enrollment_code} 
-                        onChange={(e) => setNewExam({ ...newExam, enrollment_code: e.target.value.toUpperCase() })} 
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white font-mono tracking-widest uppercase"
-                        maxLength={6}
-                      />
+                      <input type="text" required value={newExam.enrollment_code} onChange={(e) => setNewExam({ ...newExam, enrollment_code: e.target.value.toUpperCase() })} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white font-mono tracking-widest uppercase" maxLength={6} />
                     </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Examination Category</label>
+                  <div className="grid grid-cols-3 gap-4">
+                    {[
+                      { id: 'mcq_only', label: 'MCQ Only', desc: 'Auto-Marked' },
+                      { id: 'structured_only', label: 'Structured', desc: 'AI Assisted' },
+                      { id: 'mixed', label: 'Mixed', desc: 'Hybrid Logic' }
+                    ].map((type) => (
+                      <button
+                        key={type.id}
+                        type="button"
+                        onClick={() => setNewExam({ ...newExam, exam_type: type.id as any })}
+                        className={`p-4 rounded-2xl border text-left transition-all ${
+                          newExam.exam_type === type.id 
+                            ? 'bg-accent/10 border-accent shadow-[0_0_20px_rgba(0,229,255,0.1)]' 
+                            : 'bg-white/5 border-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        <p className={`text-xs font-black uppercase ${newExam.exam_type === type.id ? 'text-accent' : 'text-white/60'}`}>{type.label}</p>
+                        <p className="text-[10px] font-bold text-white/30 uppercase mt-1 tracking-tighter">{type.desc}</p>
+                      </button>
+                    ))}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Total Marks</label>
-                    <input 
-                      type="number" 
-                      required 
-                      value={newExam.total_marks} 
-                      onChange={(e) => setNewExam({ ...newExam, total_marks: parseInt(e.target.value) || 100 })} 
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white shadow-inner"
-                    />
+                    <input type="number" required value={newExam.total_marks} onChange={(e) => setNewExam({ ...newExam, total_marks: parseInt(e.target.value) || 100 })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white" />
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Allowed Violations</label>
-                    <input 
-                      type="number" 
-                      required 
-                      value={newExam.allowed_violations} 
-                      onChange={(e) => setNewExam({ ...newExam, allowed_violations: parseInt(e.target.value) || 3 })} 
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white shadow-inner"
-                    />
+                    <input type="number" required value={newExam.allowed_violations} onChange={(e) => setNewExam({ ...newExam, allowed_violations: parseInt(e.target.value) || 3 })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white" />
                   </div>
                 </div>
 
-                <div className="flex gap-4 pt-4">
-                  <button 
-                    type="submit" 
-                    disabled={isSubmitting} 
-                    className="flex-1 glass-button bg-accent text-[#0A1024] py-5 rounded-3xl font-black text-xs uppercase tracking-[0.2em] hover:scale-[1.02] shadow-[0_0_40px_rgba(0,229,255,0.2)] flex items-center justify-center gap-3 transition-all"
-                  >
-                    {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin"/> : <ShieldCheck className="w-6 h-6"/>}
-                    Initialize Laboratory Assessment
-                  </button>
-                </div>
+                <button type="submit" disabled={isSubmitting} className="w-full glass-button bg-accent text-[#0A1024] py-5 rounded-3xl font-black text-xs uppercase tracking-[0.2em] hover:scale-[1.02] shadow-[0_0_40px_rgba(0,229,255,0.2)] flex items-center justify-center gap-3 transition-all">
+                  {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin"/> : <ShieldCheck className="w-6 h-6"/>} Initialize Laboratory Assessment
+                </button>
               </form>
             </div>
           </div>
@@ -850,35 +718,14 @@ const LecturerDashboard: React.FC = () => {
               <div className="absolute top-0 left-0 w-full h-1 bg-accent/20" />
               <h2 className="text-3xl font-black tracking-tight font-outfit mb-2 text-white">Co-Marker Access</h2>
               <p className="text-white/40 text-xs font-bold uppercase tracking-widest mb-10">Delegate Assessment Permissions</p>
-              
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black text-accent/60 uppercase tracking-widest ml-1">Lecturer Email Address</label>
-                  <div className="relative group">
-                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/20 group-focus-within:text-accent transition-colors" />
-                    <input
-                      type="email" 
-                      required 
-                      placeholder="lecturer@university.edu"
-                      value={newCollabEmail} 
-                      onChange={(e) => setNewCollabEmail(e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 focus:bg-white/[0.08] transition-all font-bold text-white placeholder:text-white/10"
-                    />
-                  </div>
+                  <label className="text-[10px] font-black text-accent/60 uppercase tracking-widest ml-1">Lecturer Email</label>
+                  <input type="email" required placeholder="lecturer@university.edu" value={newCollabEmail} onChange={(e) => setNewCollabEmail(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white" />
                 </div>
-
                 <div className="flex gap-4">
-                  <button 
-                    onClick={() => setIsCollaborating(false)} 
-                    className="flex-1 glass-button bg-white/5 text-white border-white/10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/10"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={() => collabExamId && handleAddCoMarker(collabExamId)} 
-                    disabled={isAddingCollab || !newCollabEmail} 
-                    className="flex-1 glass-button bg-accent text-[#0A1024] py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:shadow-[0_0_30px_rgba(0,229,255,0.3)] disabled:opacity-30"
-                  >
+                  <button onClick={() => setIsCollaborating(false)} className="flex-1 glass-button bg-white/5 text-white border-white/10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/10">Cancel</button>
+                  <button onClick={() => collabExamId && handleAddCoMarker(collabExamId)} disabled={isAddingCollab || !newCollabEmail} className="flex-1 glass-button bg-accent text-[#0A1024] py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">
                     {isAddingCollab ? <Loader2 className="w-5 h-5 animate-spin mx-auto"/> : 'Grant Access'}
                   </button>
                 </div>
@@ -893,18 +740,10 @@ const LecturerDashboard: React.FC = () => {
             <p className="text-white/20 text-xs font-bold uppercase tracking-[0.3em]">Syncing Laboratory Data...</p>
           </div>
         ) : exams.length === 0 ? (
-          <div className="glass-panel rounded-[3rem] p-24 text-center border-dashed">
-            <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-6">
-              <FileText className="w-10 h-10 text-white/10" />
-            </div>
+          <div className="glass-panel rounded-[3rem] p-24 text-center border-dashed border-white/10">
             <h3 className="text-2xl font-black mb-2 font-outfit">No Examinations Found</h3>
             <p className="text-white/30 max-w-sm mx-auto mb-10">Create your first examination to begin managing assessments for your students.</p>
-            <button
-              onClick={() => setIsCreating(true)}
-              className="glass-button bg-accent text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest"
-            >
-              Start Now
-            </button>
+            <button onClick={() => setIsCreating(true)} className="glass-button bg-accent text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Start Now</button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -912,116 +751,71 @@ const LecturerDashboard: React.FC = () => {
               <div key={exam.id} className="group relative glass-panel rounded-[2.5rem] overflow-hidden hover:bg-white/[0.06] hover:border-accent/30 transition-all duration-300">
                 <div className="p-8">
                   <div className="flex justify-between items-start mb-6">
-                    <div className={`px-4 py-1.5 rounded-full text-[10px] uppercase font-black tracking-widest border transition-colors ${
-                      exam.is_active 
-                        ? 'bg-green-500/10 text-green-400 border-green-500/20' 
-                        : 'bg-white/5 text-white/30 border-white/5'
-                    }`}>
-                      {exam.is_active ? (
-                        <span className="flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                          Published
-                        </span>
-                      ) : 'Draft Mode'}
+                    <div className={`px-4 py-1.5 rounded-full text-[10px] uppercase font-black border tracking-widest ${exam.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-white/5 text-white/30 border-white/5'}`}>
+                      {exam.is_active ? 'Published' : 'Draft Mode'}
                     </div>
                     <div className="flex gap-2">
-                       <button 
-                        onClick={() => toggleExamStatus(exam.id, exam.is_active)} 
-                        className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center hover:bg-accent/10 hover:text-accent transition-all"
-                        title={exam.is_active ? "Retract Assessment" : "Publish Assessment"}
-                      >
-                        {exam.is_active ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
-                      </button>
-                      <button 
-                        onClick={() => deleteExam(exam.id)} 
-                        className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center hover:bg-red-500/10 hover:text-red-400 transition-all"
-                        title="Delete Exam"
-                      >
-                        <Trash2 className="w-4 h-4"/>
-                      </button>
+                      <button onClick={() => toggleExamStatus(exam.id, exam.is_active)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center hover:bg-accent/10 transition-all">{exam.is_active ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}</button>
+                      <button onClick={() => deleteExam(exam.id)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center hover:bg-red-500/10 transition-all"><Trash2 className="w-4 h-4"/></button>
                     </div>
                   </div>
-
-                  <h3 className="text-2xl font-black text-white mb-2 font-outfit truncate group-hover:text-accent transition-colors">{exam.title}</h3>
-                  <div className="flex items-center gap-4 mb-8">
-                    <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                      <Clock className="w-3.5 h-3.5" />
-                      {exam.duration_minutes}m
-                    </div>
-                    {exam.average_score !== undefined && exam.total_submissions > 0 && (
-                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-[10px] font-black uppercase tracking-widest leading-none">
-                        <BarChart3 className="w-3 h-3" />
-                        Avg: {exam.average_score}%
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <h3 className="text-2xl font-black text-white font-outfit truncate">{exam.title}</h3>
+                    <div className="flex items-center gap-2">
+                      <div 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigator.clipboard.writeText(exam.enrollment_code);
+                          showToast('Enrollment code copied!', 'success');
+                        }}
+                        className="shrink-0 flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-lg cursor-pointer hover:bg-accent/10 hover:border-accent/40 transition-all group/code"
+                        title="Click to copy enrollment code"
+                      >
+                        <span className="text-[10px] font-black tracking-widest text-accent">{exam.enrollment_code}</span>
+                        <Copy className="w-3 h-3 text-white/20 group-hover/code:text-accent" />
                       </div>
-                    )}
-                    <button 
-                      onClick={() => regenerateEnrollmentCode(exam.id)}
-                      className="flex items-center gap-2 px-2 py-1 bg-white/5 rounded-lg border border-white/5 hover:bg-accent/10 hover:border-accent/20 transition-all group/code"
-                      title="Regenerate Code"
-                    >
-                      <span className="text-[10px] font-black uppercase text-accent/60 tracking-widest">Code:</span>
-                      <span className="text-xs font-black text-white/80 font-mono select-all tracking-wider group-hover/code:text-accent">{exam.enrollment_code}</span>
-                      <RotateCcw className="w-3 h-3 text-white/20 group-hover/code:text-accent group-hover/code:rotate-180 transition-all duration-500" />
-                    </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          regenerateEnrollmentCode(exam.id);
+                        }}
+                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-white/20 hover:text-accent border border-transparent hover:border-white/10"
+                        title="Regenerate enrollment code"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-
-                  {/* Stats Bar */}
+                  <div className="flex items-center gap-4 mb-8 text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                    <Clock className="w-3.5 h-3.5" /> {exam.duration_minutes}m
+                    <span className="px-2 py-0.5 bg-accent/10 text-accent rounded-lg">{exam.exam_type?.replace('_', ' ')}</span>
+                    {exam.total_submissions > 0 && (
+                      <span className="px-2 py-0.5 bg-white/5 text-white/60 rounded-lg">Avg: {exam.average_score}%</span>
+                    )}
+                  </div>
                   <div className="space-y-4 mb-8">
                     <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-white/40">
                       <span>Marking Progress</span>
                       <span>{exam.marked_submissions} / {exam.total_submissions}</span>
                     </div>
                     <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
-                      <div 
-                        className="h-full bg-accent shadow-[0_0_10px_rgba(0,229,255,0.4)] transition-all duration-500" 
-                        style={{ width: `${exam.total_submissions > 0 ? (exam.marked_submissions / exam.total_submissions) * 100 : 0}%` }}
-                      />
+                      <div className="h-full bg-accent shadow-[0_0_10px_rgba(0,229,255,0.4)] transition-all duration-500" style={{ width: `${exam.total_submissions > 0 ? (exam.marked_submissions / exam.total_submissions) * 100 : 0}%` }} />
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-1 gap-3">
-                    <button
-                      onClick={() => navigate(`/lecturer/results/${exam.id}`)}
-                      className="glass-button bg-white text-[#0A1024] py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] shadow-xl"
-                    >
-                      <BarChart3 className="w-5 h-5" />
-                      Review & Grade
-                    </button>
-                  </div>
+                  <button onClick={() => navigate(`/lecturer/results/${exam.id}`)} className="w-full glass-button bg-white text-[#0A1024] py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] shadow-xl">
+                    <BarChart3 className="w-5 h-5" /> Review & Grade
+                  </button>
                 </div>
-
-                <div className="grid grid-cols-4 bg-white/5 border-t border-white/5 opacity-0 group-hover:opacity-100 transition-all divide-x divide-white/5">
-                  <button 
-                    onClick={() => handleEditQuestions(exam)}
-                    className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors"
-                    title="Edit Questions"
-                  >
-                    <Edit3 className="w-4 h-4 text-accent"/>
-                    <span className="text-[8px] font-bold uppercase tracking-widest">Edit</span>
-                  </button>
-                  <label className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors cursor-pointer">
-                    <FileUp className="w-4 h-4 text-accent"/>
-                    <span className="text-[8px] font-bold uppercase tracking-widest">Upload</span>
-                    <input type="file" className="hidden" accept=".pdf,.docx,.txt" onChange={(e) => handleFileUpload(exam.id, e)} disabled={uploadingExamId !== null}/>
-                  </label>
-                  <button 
-                    onClick={() => { setCollabExamId(exam.id); setIsCollaborating(true); }}
-                    className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors"
-                    title="Add Co-Marker"
-                  >
-                    <UserPlus className="w-4 h-4 text-accent"/>
-                    <span className="text-[8px] font-bold uppercase tracking-widest">Admin</span>
-                  </button>
-                  <label className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors cursor-pointer" title="Enroll Students (Excel)">
-                    <Download className="w-4 h-4 text-accent rotate-180"/>
-                    <span className="text-[8px] font-bold uppercase tracking-widest">Enroll</span>
-                    <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => handleEnrollStudents(exam.id, e)} disabled={isEnrolling}/>
-                  </label>
-                  <label className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors cursor-pointer" title="Upload Questions (Excel)">
-                    <FileUp className="w-4 h-4 text-purple-400"/>
-                    <span className="text-[8px] font-bold uppercase tracking-widest">Bulk QS</span>
+                <div className="grid grid-cols-5 bg-white/5 border-t border-white/5 opacity-0 group-hover:opacity-100 transition-all divide-x divide-white/5">
+                  <button onClick={() => handleEditQuestions(exam)} className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors text-[8px] font-bold uppercase tracking-widest"><Edit3 className="w-4 h-4 text-accent"/> Edit</button>
+                  <button onClick={() => setEditingSettings(exam)} className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors text-[8px] font-bold uppercase tracking-widest"><Settings className="w-4 h-4 text-accent"/> Settings</button>
+                  <label className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors cursor-pointer text-[8px] font-bold uppercase tracking-widest">
+                    <FileUp className="w-4 h-4 text-accent"/> 
+                    Questions
                     <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => handleQuestionExcelUpload(exam.id, e)} disabled={isSavingQuestions}/>
                   </label>
+                  <button onClick={() => { setCollabExamId(exam.id); setIsCollaborating(true); }} className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors text-[8px] font-bold uppercase tracking-widest"><UserPlus className="w-4 h-4 text-accent"/> Admin</button>
+                  <label className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors cursor-pointer text-[8px] font-bold uppercase tracking-widest"><Download className="w-4 h-4 text-accent rotate-180"/> Enroll <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => handleEnrollStudents(exam.id, e)} disabled={isEnrolling}/></label>
                 </div>
               </div>
             ))}
@@ -1030,159 +824,118 @@ const LecturerDashboard: React.FC = () => {
 
         {editingExamQuestions && (
           <div className="fixed inset-0 bg-[#0A1024] z-[150] overflow-y-auto animate-in slide-in-from-bottom-10 duration-500">
-            {/* Background decoration for editor */}
-            <div className="fixed top-0 left-0 w-full h-full pointer-events-none opacity-20">
-              <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-accent/20 rounded-full blur-[120px]" />
-              <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/20 rounded-full blur-[120px]" />
-            </div>
-
             <div className="max-w-5xl mx-auto px-6 py-12 relative z-10">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 mb-16 sticky top-0 bg-[#0A1024]/80 backdrop-blur-xl py-6 border-b border-white/5 z-20">
                 <div>
                   <h2 className="text-4xl font-black tracking-tight font-outfit text-white">{editingExamQuestions.title}</h2>
-                  <p className="text-accent/60 text-xs font-black uppercase tracking-[0.2em] mt-2 flex items-center gap-2">
-                    <Edit3 className="w-4 h-4" />
-                    Examination Blueprint Editor
-                  </p>
+                  <p className="text-accent/60 text-xs font-black uppercase mt-2">Examination Blueprint Editor</p>
                 </div>
-                <div className="flex items-center gap-4">
-                  <button 
-                    onClick={() => setEditingExamQuestions(null)} 
-                    className="px-8 py-4 text-white/40 hover:text-white font-black text-xs uppercase tracking-widest transition-colors"
-                  >
-                    Discard Changes
-                  </button>
-                  <button 
-                    onClick={handleSaveQuestions} 
-                    disabled={isSavingQuestions} 
-                    className="glass-button bg-accent text-[#0A1024] px-10 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:shadow-[0_0_40px_rgba(0,229,255,0.3)] transition-all active:scale-95 disabled:opacity-50"
-                  >
-                    {isSavingQuestions ? <Loader2 className="w-6 h-6 animate-spin"/> : <Save className="w-6 h-6"/>} 
-                    Finalize Questions
+                <div className="flex gap-4">
+                  <button onClick={() => setEditingExamQuestions(null)} className="px-8 py-4 text-white/40 hover:text-white font-black text-xs uppercase tracking-widest">Discard</button>
+                  <button onClick={handleSaveQuestions} disabled={isSavingQuestions} className="glass-button bg-accent text-[#0A1024] px-10 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3">
+                    {isSavingQuestions ? <Loader2 className="w-6 h-6 animate-spin"/> : <Save className="w-6 h-6"/>} Finalize
                   </button>
                 </div>
               </div>
 
               <div className="space-y-8 pb-32">
                 {questions.map((q, idx) => (
-                  <div key={q.id} className="group glass-panel rounded-[2rem] p-10 relative hover:bg-white/[0.04] transition-all border-white/5 hover:border-accent/20">
-                     <div className="absolute -left-4 top-10 w-8 h-8 bg-accent rounded-lg flex items-center justify-center font-black text-[#0A1024] text-xs shadow-lg">
-                      {idx + 1}
-                    </div>
-                    
-                    <button 
-                      onClick={() => handleRemoveQuestion(q.id)} 
-                      className="absolute top-8 right-8 w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 transition-all shadow-xl"
-                      title="Remove Question"
-                    >
-                      <Trash2 className="w-5 h-5"/>
-                    </button>
-
+                  <div key={q.id} className="group glass-panel rounded-[2rem] p-10 relative hover:bg-white/[0.04] transition-all border-white/5">
+                    <div className="absolute -left-4 top-10 w-8 h-8 bg-accent rounded-lg flex items-center justify-center font-black text-[#0A1024] text-xs">{idx + 1}</div>
+                    <button onClick={() => handleRemoveQuestion(q.id)} className="absolute top-8 right-8 w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 transition-all"><Trash2 className="w-5 h-5"/></button>
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
                       <div className="lg:col-span-8 space-y-6">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black text-white/30 uppercase tracking-widest ml-1">Inquiry Statement</label>
-                          <textarea
-                            value={q.question_text}
-                            onChange={(e) => handleUpdateQuestion(q.id, { question_text: e.target.value })}
-                            className="w-full bg-white/5 border border-white/10 rounded-[1.5rem] px-6 py-5 outline-none focus:border-accent/50 focus:bg-white/[0.08] transition-all font-bold text-lg text-white placeholder:text-white/10 min-h-[120px]"
-                            placeholder="State the question clearly..."
-                          />
-                        </div>
-
+                        <textarea value={q.question_text} onChange={(e) => handleUpdateQuestion(q.id, { question_text: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl p-6 outline-none focus:border-accent text-white font-bold text-lg" placeholder="Question Text" />
                         {q.type === 'mcq' && (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {(q.options || []).map((opt, oIdx) => (
-                              <div key={oIdx} className="relative group/option">
-                                <div className="absolute left-4 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center text-[10px] font-black text-white/20 group-focus-within/option:bg-accent/20 group-focus-within/option:text-accent transition-all">
-                                  {String.fromCharCode(65 + oIdx)}
-                                </div>
-                                <input
-                                  type="text"
-                                  value={opt}
-                                  onChange={(e) => {
-                                    const newOpts = [...(q.options || [])];
-                                    newOpts[oIdx] = e.target.value;
-                                    handleUpdateQuestion(q.id, { options: newOpts });
-                                  }}
-                                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-4 outline-none focus:border-accent/30 transition-all font-bold text-sm text-white/80"
-                                />
-                              </div>
+                              <input key={oIdx} type="text" value={opt} onChange={(e) => {
+                                const newOpts = [...(q.options || [])];
+                                newOpts[oIdx] = e.target.value;
+                                handleUpdateQuestion(q.id, { options: newOpts });
+                              }} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white/80 font-bold" />
                             ))}
                           </div>
                         )}
                       </div>
-
                       <div className="lg:col-span-4 space-y-6">
-                        <div className="glass-panel bg-white/5 p-6 rounded-2xl border-white/5">
-                          <div className="space-y-6">
-                            <div className="space-y-2">
-                              <label className="text-[10px] font-black text-white/30 uppercase tracking-widest ml-1">Evaluation Model</label>
-                              <select 
-                                value={q.type} 
-                                onChange={(e) => handleUpdateQuestion(q.id, { type: e.target.value as any })}
-                                className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white font-bold outline-none focus:border-accent/50"
-                              >
-                                <option value="mcq">Multiple Choice</option>
-                                <option value="structured">Structured / Essay</option>
-                              </select>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-black text-white/30 uppercase tracking-widest ml-1">Score Value</label>
-                                <input 
-                                  type="number" 
-                                  value={q.marks} 
-                                  onChange={(e) => handleUpdateQuestion(q.id, { marks: parseInt(e.target.value) || 1 })}
-                                  className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white font-bold outline-none focus:border-accent/50"
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <label className="text-[10px] font-black text-white/30 uppercase tracking-widest ml-1">Correct Identity</label>
-                                <input 
-                                  type="text" 
-                                  value={q.correct_answer} 
-                                  onChange={(e) => handleUpdateQuestion(q.id, { correct_answer: e.target.value })}
-                                  className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white font-bold outline-none focus:border-accent/50 font-mono"
-                                  placeholder="Answer Key"
-                                />
-                              </div>
-                            </div>
-
-                            <label className="flex items-center gap-3 cursor-pointer group/toggle">
-                              <div className={`w-12 h-6 rounded-full transition-all flex items-center px-1 ${q.can_copy ? 'bg-accent' : 'bg-white/10'}`}>
-                                <div className={`w-4 h-4 rounded-full bg-white shadow-lg transition-all ${q.can_copy ? 'translate-x-6' : 'translate-x-0'}`} />
-                              </div>
-                              <span className="text-[10px] font-black text-white/30 uppercase tracking-widest group-hover/toggle:text-white/60">Allow Text Copying</span>
-                              <input 
-                                type="checkbox" 
-                                className="hidden" 
-                                checked={q.can_copy} 
-                                onChange={(e) => handleUpdateQuestion(q.id, { can_copy: e.target.checked })}
-                              />
-                            </label>
-                          </div>
+                        <select value={q.type} onChange={(e) => handleUpdateQuestion(q.id, { type: e.target.value as any })} className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white font-bold outline-none">
+                          <option value="mcq">Multiple Choice</option>
+                          <option value="structured">Structured / Essay</option>
+                        </select>
+                        <div className="grid grid-cols-2 gap-4">
+                          <input type="number" value={q.marks} onChange={(e) => handleUpdateQuestion(q.id, { marks: parseInt(e.target.value) || 1 })} className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white font-bold" />
+                          <input type="text" value={q.correct_answer} onChange={(e) => handleUpdateQuestion(q.id, { correct_answer: e.target.value })} className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white font-bold font-mono" />
                         </div>
                       </div>
                     </div>
                   </div>
                 ))}
-
-                <button
-                  onClick={handleAddQuestion}
-                  className="w-full py-12 border-2 border-dashed border-white/10 rounded-[3rem] flex flex-col items-center justify-center gap-4 text-white/20 hover:text-accent hover:border-accent/30 hover:bg-accent/5 transition-all group"
-                >
-                  <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Plus className="w-8 h-8" />
-                  </div>
-                  <span className="text-sm font-black uppercase tracking-[0.3em]">Integrate New Question</span>
+                <button onClick={handleAddQuestion} className="w-full py-12 border-2 border-dashed border-white/10 rounded-[3rem] flex items-center justify-center gap-4 text-white/20 hover:text-accent hover:border-accent/30 transition-all font-black uppercase tracking-[0.3em]">
+                  <Plus className="w-8 h-8" /> New Question
                 </button>
               </div>
             </div>
           </div>
         )}
       </main>
+      {/* Edit Settings Modal */}
+      {editingSettings && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-[#0A1024]/80 backdrop-blur-md">
+          <div className="glass-panel w-full max-w-lg rounded-[2.5rem] border border-white/10 overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="p-10">
+              <div className="flex justify-between items-center mb-10">
+                <div>
+                  <h3 className="text-3xl font-black font-outfit">Exam Settings</h3>
+                  <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mt-1">Configure Assessment Parameters</p>
+                </div>
+                <button onClick={() => setEditingSettings(null)} className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-red-500/10 hover:text-red-400 transition-all"><X className="w-5 h-5"/></button>
+              </div>
+
+              <form onSubmit={handleUpdateExamSettings} className="space-y-8">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Examination Title</label>
+                    <input type="text" value={editingSettings.title} onChange={(e) => setEditingSettings({...editingSettings, title: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" placeholder="e.g. Advanced Microbiology 101" required />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Duration (Min)</label>
+                      <input type="number" value={editingSettings.duration_minutes} onChange={(e) => setEditingSettings({...editingSettings, duration_minutes: parseInt(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" required />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Violation Limit</label>
+                      <input type="number" value={editingSettings.allowed_violations} onChange={(e) => setEditingSettings({...editingSettings, allowed_violations: parseInt(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" required />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Allowed Attempts</label>
+                      <input type="number" value={editingSettings.allowed_attempts} onChange={(e) => setEditingSettings({...editingSettings, allowed_attempts: parseInt(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" min="1" required />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Exam Type</label>
+                      <select value={editingSettings.exam_type} onChange={(e) => setEditingSettings({...editingSettings, exam_type: e.target.value as any})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium appearance-none">
+                        <option value="mcq_only" className="bg-[#0D1117]">MCQ Only</option>
+                        <option value="structured_only" className="bg-[#0D1117]">Structured Only</option>
+                        <option value="mixed" className="bg-[#0D1117]">Mixed</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-white/5">
+                  <button type="submit" disabled={isSubmitting} className="w-full glass-button bg-accent text-[#0A1024] py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] shadow-xl disabled:opacity-50">
+                    {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} Save Settings
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
