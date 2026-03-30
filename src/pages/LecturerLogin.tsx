@@ -41,7 +41,9 @@ const LecturerLogin: React.FC = () => {
 
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: window.location.hostname === 'localhost' 
+          ? 'https://securelab-exam.web.app/reset-password'
+          : `${window.location.origin}/reset-password`,
       });
 
       if (resetError) throw resetError;

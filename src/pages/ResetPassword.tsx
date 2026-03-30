@@ -8,20 +8,44 @@ const ResetPassword: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(true);
   const [error, setError] = useState('');
   const navigate = useNavigate();
   const { showToast } = useNotification();
 
   useEffect(() => {
-    // Check if we have a session (Supabase handles the recovery link by creating a session)
-    const checkSession = async () => {
+    // Supabase sends the recovery token as a hash fragment in the URL.
+    // We must listen for the PASSWORD_RECOVERY auth event instead of calling
+    // getSession() immediately, because the session isn't established yet
+    // when the component first mounts.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        // Valid recovery link — session is now established, show the form.
+        setIsVerifying(false);
+      } else if (event === 'SIGNED_IN' && session) {
+        // Already signed in (e.g. returning to the page), allow form.
+        setIsVerifying(false);
+      } else if (!session && event !== 'INITIAL_SESSION') {
+        showToast('Invalid or expired reset link. Please request a new one.', 'error');
+        navigate('/lecturer/login');
+      }
+    });
+
+    // Fallback: if no auth event fires within 3 seconds, check session manually.
+    const fallbackTimer = setTimeout(async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         showToast('Invalid or expired reset link. Please request a new one.', 'error');
         navigate('/lecturer/login');
+      } else {
+        setIsVerifying(false);
       }
+    }, 3000);
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(fallbackTimer);
     };
-    checkSession();
   }, [navigate, showToast]);
 
   const handleReset = async (e: React.FormEvent) => {
@@ -58,6 +82,17 @@ const ResetPassword: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  if (isVerifying) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-primary">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-10 h-10 text-accent animate-spin" />
+          <p className="text-white/40 text-sm font-medium">Verifying reset link...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-primary">
