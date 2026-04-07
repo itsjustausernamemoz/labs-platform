@@ -632,19 +632,25 @@ const Results: React.FC = () => {
 
     const data = Array.from(reportDataMap.values()).map(sub => ({
       'Student Number': sub.student?.student_number || 'Unknown',
-      'Score (%)': ((sub.score / (sub.total_marks || 1)) * 100).toFixed(1),
-      'Status': sub.is_manual ? 'Lecturer Marked' : sub.graded ? 'Auto-Graded' : 'Pending',
+      'Score (%)': parseFloat(((sub.score / (sub.total_marks || 1)) * 100).toFixed(1)),
       'Violations': sub.violations_count ?? 0
     }));
 
     // Create a new workbook and add the data as a worksheet
     const worksheet = XLSX.utils.json_to_sheet(data);
+
+    // Set column widths for clean formatting
+    worksheet['!cols'] = [
+      { wch: 20 }, // Student Number
+      { wch: 12 }, // Score (%)
+      { wch: 12 }, // Violations
+    ];
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Results');
 
-    // Generate CSV and trigger download
-    // XLSX.writeFile will handle the download in the browser
-    XLSX.writeFile(workbook, `${examTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_results.csv`);
+    // Generate proper .xlsx file with separate columns and trigger download
+    XLSX.writeFile(workbook, `${examTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_results.xlsx`);
   };
 
   return (
