@@ -1,8 +1,13 @@
 {
   "projects": {
-    "default": "securelab-exam",
-    "lab": "labsystem-7a0e1"
+    "default": "labsystem-7a0e1"
   },
-  "targets": {},
-  "etags": {}
+  "targets": {
+    "labsystem-7a0e1": {
+      "hosting": {
+        "student": ["slab-student"],
+        "lecturer": ["lab-lecturer"]
+      }
+    }
+  }
 }
