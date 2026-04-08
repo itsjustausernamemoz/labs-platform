@@ -5,7 +5,7 @@ import {
   Plus, FileUp, Trash2, Eye, EyeOff,
   Save, Edit3, UserPlus, ShieldCheck, Download,
   User, X, Lock, Clock, RotateCcw, Copy,
-  BarChart3, LogOut, Loader2, Settings
+  BarChart3, LogOut, Loader2, Settings, BookOpen, FolderOpen
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNotification } from '@shared/components/NotificationProvider';
@@ -22,12 +22,21 @@ interface Exam {
   allowed_attempts: number;
   enrollment_code: string;
   exam_type: 'mcq_only' | 'structured_only' | 'mixed';
+  subject_id?: string | null;
+  exam_mode?: 'closed_book' | 'open_book';
 }
 
 interface LecturerProfile {
   id: string;
   full_name: string;
   email: string;
+}
+
+interface Subject {
+  id: string;
+  name: string;
+  lecturer_id: string;
+  created_at: string;
 }
 
 interface Question {
@@ -63,7 +72,9 @@ const LecturerDashboard: React.FC = () => {
     allowed_violations: 3,
     allowed_attempts: 1,
     enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
-    exam_type: 'mixed' as 'mcq_only' | 'structured_only' | 'mixed'
+    exam_type: 'mixed' as 'mcq_only' | 'structured_only' | 'mixed',
+    subject_id: null as string | null,
+    exam_mode: 'closed_book' as 'closed_book' | 'open_book'
   });
   const [editingSettings, setEditingSettings] = useState<ExamWithStats | null>(null);
   const [editingExamQuestions, setEditingExamQuestions] = useState<ExamWithStats | null>(null);
@@ -79,11 +90,18 @@ const LecturerDashboard: React.FC = () => {
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   
+  // Feature 6: Subjects State
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | 'all'>('all');
+  const [isCreatingSubject, setIsCreatingSubject] = useState(false);
+  const [newSubjectName, setNewSubjectName] = useState('');
+  
   const navigate = useNavigate();
   const { showToast, showConfirm } = useNotification();
 
   useEffect(() => {
     fetchProfile();
+    fetchSubjects();
     fetchExams();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -165,6 +183,50 @@ const LecturerDashboard: React.FC = () => {
       showToast(err.message, 'error');
     } finally {
       setIsUpdatingPassword(false);
+    }
+  };
+
+  const fetchSubjects = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('subjects')
+        .select('*')
+        .eq('lecturer_id', user.id)
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      setSubjects(data || []);
+    } catch (err: any) {
+      console.error('Error fetching subjects:', err);
+    }
+  };
+
+  const handleCreateSubject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSubjectName.trim()) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from('subjects')
+        .insert([{
+          name: newSubjectName.trim(),
+          lecturer_id: user.id
+        }]);
+
+      if (error) throw error;
+      
+      showToast('Subject created successfully!', 'success');
+      setNewSubjectName('');
+      setIsCreatingSubject(false);
+      fetchSubjects();
+    } catch (err: any) {
+      showToast(err.message, 'error');
     }
   };
 
@@ -270,7 +332,9 @@ const LecturerDashboard: React.FC = () => {
           total_marks: newExam.total_marks,
           allowed_violations: newExam.allowed_violations,
           enrollment_code: newExam.enrollment_code,
-          exam_type: newExam.exam_type
+          exam_type: newExam.exam_type,
+          subject_id: newExam.subject_id,
+          exam_mode: newExam.exam_mode
         }])
         .select()
         .single();
@@ -292,14 +356,54 @@ const LecturerDashboard: React.FC = () => {
         allowed_violations: 3,
         allowed_attempts: 1,
         enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
-        exam_type: 'mixed'
+        exam_type: 'mixed',
+        subject_id: null,
+        exam_mode: 'closed_book'
       });
-      showToast('Exam created successfully!', 'success');
+      showToast('Assessment created successfully!', 'success');
     } catch (err: any) {
       console.error('Error creating exam:', err);
       showToast(err.message || 'Failed to create exam.', 'error');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleMoveToSubject = async (examId: string, subjectId: string | null) => {
+    try {
+      const { error } = await supabase
+        .from('exams')
+        .update({ subject_id: subjectId })
+        .eq('id', examId);
+
+      if (error) throw error;
+      
+      showToast('Exam moved successfully!', 'success');
+      fetchExams();
+    } catch (err: any) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const handleDeleteSubject = async (subjectId: string) => {
+    if (!confirm('Are you sure? This will unorganize all exams in this subject.')) return;
+
+    try {
+      const { error } = await supabase
+        .from('subjects')
+        .delete()
+        .eq('id', subjectId);
+
+      if (error) throw error;
+      
+      showToast('Subject deleted successfully!', 'success');
+      if (selectedSubjectId === subjectId) {
+        setSelectedSubjectId('all');
+      }
+      fetchSubjects();
+      fetchExams();
+    } catch (err: any) {
+      showToast(err.message, 'error');
     }
   };
 
@@ -546,7 +650,9 @@ const LecturerDashboard: React.FC = () => {
           duration_minutes: editingSettings.duration_minutes,
           allowed_violations: editingSettings.allowed_violations,
           allowed_attempts: editingSettings.allowed_attempts,
-          exam_type: editingSettings.exam_type
+          exam_type: editingSettings.exam_type,
+          subject_id: (editingSettings as any).subject_id,
+          exam_mode: (editingSettings as any).exam_mode
         })
         .eq('id', editingSettings.id);
 
@@ -695,6 +801,43 @@ const LecturerDashboard: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
+                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Assign to Subject</label>
+                    <select
+                      value={newExam.subject_id || ''}
+                      onChange={(e) => setNewExam({ ...newExam, subject_id: e.target.value || null })}
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white appearance-none cursor-pointer"
+                    >
+                      <option value="" className="bg-primary">No Subject</option>
+                      {subjects.map(s => (
+                        <option key={s.id} value={s.id} className="bg-primary">{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Assessment Mode</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNewExam({ ...newExam, exam_mode: 'closed_book' })}
+                        className={`py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${newExam.exam_mode === 'closed_book' ? 'bg-accent/10 border-accent text-accent' : 'bg-white/5 border-white/10 text-white/40'}`}
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        <span className="text-[10px] font-black uppercase">Closed</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewExam({ ...newExam, exam_mode: 'open_book' })}
+                        className={`py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${newExam.exam_mode === 'open_book' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-white/5 border-white/10 text-white/40'}`}
+                      >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        <span className="text-[10px] font-black uppercase">Open</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-2">
                     <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Total Marks</label>
                     <input type="number" required value={newExam.total_marks} onChange={(e) => setNewExam({ ...newExam, total_marks: parseInt(e.target.value) || 100 })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white" />
                   </div>
@@ -734,25 +877,98 @@ const LecturerDashboard: React.FC = () => {
           </div>
         )}
 
+        <div className="flex flex-col gap-8 mb-12">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setSelectedSubjectId('all')}
+              className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${
+                selectedSubjectId === 'all'
+                  ? 'bg-accent text-[#0A1024] border-accent shadow-lg shadow-accent/20'
+                  : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              All Assessments
+            </button>
+            {subjects.map(subject => (
+              <div key={subject.id} className="relative group/subject">
+                <button
+                  onClick={() => setSelectedSubjectId(subject.id)}
+                  className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${
+                    selectedSubjectId === subject.id
+                      ? 'bg-white/10 text-accent border-accent/30'
+                      : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  {subject.name}
+                </button>
+                <div className="absolute -top-2 -right-2 opacity-0 group-hover/subject:opacity-100 transition-opacity">
+                   <button onClick={(e) => { e.stopPropagation(); handleDeleteSubject(subject.id); }} className="w-6 h-6 rounded-full bg-red-500/20 text-red-500 border border-red-500/30 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all"><X className="w-3 h-3" /></button>
+                </div>
+              </div>
+            ))}
+            <button 
+              onClick={() => setIsCreatingSubject(true)}
+              className="px-4 py-3 rounded-2xl bg-[#00E5FF]/10 text-[#00E5FF] border border-[#00E5FF]/20 hover:bg-[#00E5FF]/20 transition-all flex items-center gap-2"
+              title="New Category"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="text-[10px] font-black uppercase tracking-widest">New Category</span>
+            </button>
+          </div>
+        </div>
+
+        {isCreatingSubject && (
+          <div className="fixed inset-0 bg-[#0A1024]/80 backdrop-blur-xl flex items-center justify-center z-[110] p-6 animate-in zoom-in-95 duration-300">
+            <div className="glass-panel max-w-sm w-full p-8 rounded-[2.5rem] shadow-2xl">
+              <h3 className="text-2xl font-black mb-6 font-outfit">New Subject Category</h3>
+              <form onSubmit={handleCreateSubject} className="space-y-6">
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="e.g. Computer Science"
+                  value={newSubjectName}
+                  onChange={(e) => setNewSubjectName(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white font-bold"
+                />
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setIsCreatingSubject(false)} className="flex-1 bg-white/5 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest text-white/40 hover:bg-white/10">Cancel</button>
+                  <button type="submit" disabled={!newSubjectName.trim()} className="flex-1 bg-accent text-[#0A1024] py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-accent/20">Create</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-32 gap-4">
             <Loader2 className="w-12 h-12 text-accent animate-spin" />
             <p className="text-white/20 text-xs font-bold uppercase tracking-[0.3em]">Syncing Laboratory Data...</p>
           </div>
-        ) : exams.length === 0 ? (
+        ) : exams.filter(e => selectedSubjectId === 'all' || e.subject_id === selectedSubjectId).length === 0 ? (
           <div className="glass-panel rounded-[3rem] p-24 text-center border-dashed border-white/10">
             <h3 className="text-2xl font-black mb-2 font-outfit">No Examinations Found</h3>
-            <p className="text-white/30 max-w-sm mx-auto mb-10">Create your first examination to begin managing assessments for your students.</p>
-            <button onClick={() => setIsCreating(true)} className="glass-button bg-accent text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Start Now</button>
+            <p className="text-white/30 max-w-sm mx-auto mb-10">
+              {selectedSubjectId === 'all' 
+                ? 'Create your first examination to begin managing assessments for your students.'
+                : 'No examinations have been assigned to this category yet.'}
+            </p>
+            {selectedSubjectId === 'all' && (
+              <button onClick={() => setIsCreating(true)} className="glass-button bg-accent text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Start Now</button>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {exams.map((exam) => (
-              <div key={exam.id} className="group relative glass-panel rounded-[2.5rem] overflow-hidden hover:bg-white/[0.06] hover:border-accent/30 transition-all duration-300">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {exams.filter(e => selectedSubjectId === 'all' || e.subject_id === selectedSubjectId).map((exam) => (
+              <div key={exam.id} className="group relative glass-panel rounded-[2.5rem] border border-white/5 overflow-hidden hover:bg-white/[0.06] hover:border-accent/30 transition-all duration-300">
                 <div className="p-8">
                   <div className="flex justify-between items-start mb-6">
-                    <div className={`px-4 py-1.5 rounded-full text-[10px] uppercase font-black border tracking-widest ${exam.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-white/5 text-white/30 border-white/5'}`}>
-                      {exam.is_active ? 'Published' : 'Draft Mode'}
+                    <div className="flex items-center gap-2">
+                      <div className={`px-4 py-1.5 rounded-full text-[10px] uppercase font-black border tracking-widest ${exam.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-white/5 text-white/30 border-white/5'}`}>
+                        {exam.is_active ? 'Published' : 'Draft Mode'}
+                      </div>
+                      <div className={`px-3 py-1.5 rounded-full text-[9px] uppercase font-black border tracking-widest ${(exam as any).exam_mode === 'open_book' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-accent/10 text-accent border-accent/20'}`}>
+                        {(exam as any).exam_mode === 'open_book' ? 'Open Book' : 'Closed Book'}
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <button onClick={() => toggleExamStatus(exam.id, exam.is_active)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center hover:bg-accent/10 transition-all">{exam.is_active ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}</button>
@@ -760,7 +976,7 @@ const LecturerDashboard: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-3 mb-2">
-                    <h3 className="text-2xl font-black text-white font-outfit truncate">{exam.title}</h3>
+                    <h3 className="text-2xl font-black text-white font-outfit break-words line-clamp-3">{exam.title}</h3>
                     <div className="flex items-center gap-2">
                       <div 
                         onClick={(e) => {
@@ -814,6 +1030,17 @@ const LecturerDashboard: React.FC = () => {
                     Questions
                     <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => handleQuestionExcelUpload(exam.id, e)} disabled={isSavingQuestions}/>
                   </label>
+                  <div className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors text-[8px] font-bold uppercase tracking-widest relative group/move">
+                    <FolderOpen className="w-4 h-4 text-accent"/> 
+                    Organize
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/move:block bg-[#0A1024] border border-white/10 rounded-xl shadow-2xl p-2 min-w-[160px] z-[20]">
+                      <div className="text-[8px] font-black text-white/30 mb-2 px-2 uppercase">Move to:</div>
+                      <button onClick={() => handleMoveToSubject(exam.id, null)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-[9px] text-white/60 hover:text-white">Unorganized</button>
+                      {subjects.map(s => (
+                        <button key={s.id} onClick={() => handleMoveToSubject(exam.id, s.id)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-[9px] text-white/60 hover:text-white truncate">{s.name}</button>
+                      ))}
+                    </div>
+                  </div>
                   <button onClick={() => { setCollabExamId(exam.id); setIsCollaborating(true); }} className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors text-[8px] font-bold uppercase tracking-widest"><UserPlus className="w-4 h-4 text-accent"/> Admin</button>
                   <label className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors cursor-pointer text-[8px] font-bold uppercase tracking-widest"><Download className="w-4 h-4 text-accent rotate-180"/> Enroll <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => handleEnrollStudents(exam.id, e)} disabled={isEnrolling}/></label>
                 </div>
@@ -922,6 +1149,43 @@ const LecturerDashboard: React.FC = () => {
                         <option value="structured_only" className="bg-[#0D1117]">Structured Only</option>
                         <option value="mixed" className="bg-[#0D1117]">Mixed</option>
                       </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6 pt-4 border-t border-white/5">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Assigned Category</label>
+                      <select
+                        value={(editingSettings as any).subject_id || ''}
+                        onChange={(e) => setEditingSettings({ ...editingSettings, subject_id: e.target.value || null } as any)}
+                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white appearance-none cursor-pointer"
+                      >
+                        <option value="" className="bg-primary">No Category</option>
+                        {subjects.map(s => (
+                          <option key={s.id} value={s.id} className="bg-primary">{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Environment Mode</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingSettings({ ...editingSettings, exam_mode: 'closed_book' } as any)}
+                          className={`py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${(editingSettings as any).exam_mode === 'closed_book' ? 'bg-accent/10 border-accent text-accent' : 'bg-white/5 border-white/10 text-white/40'}`}
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span className="text-[10px] font-black uppercase">Closed</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingSettings({ ...editingSettings, exam_mode: 'open_book' } as any)}
+                          className={`py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${(editingSettings as any).exam_mode === 'open_book' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-white/5 border-white/10 text-white/40'}`}
+                        >
+                          <BookOpen className="w-3.5 h-3.5" />
+                          <span className="text-[10px] font-black uppercase">Open</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -75,7 +75,7 @@ const StructuredAnswerInput: React.FC<{ value: string; onChange: (v: string) => 
         rows={8}
         spellCheck={false}
         className={[
-          'w-full min-h-[12rem] overflow-hidden resize-none',
+          'w-full min-h-[12rem] max-h-[24rem] overflow-y-auto resize-none',
           'bg-white/5 border border-white/10 rounded-lg',
           'p-4 pl-14',
           'focus:border-accent focus:ring-1 focus:ring-accent outline-none transition-all',
@@ -114,7 +114,7 @@ const QuestionRenderer: React.FC<QuestionRendererProps> = ({ question, index, an
         <span className="px-3 py-1 bg-white/10 rounded-full text-sm">{question.marks} Marks</span>
       </div>
 
-      <p className="text-lg mb-6 leading-relaxed">{question.question_text}</p>
+      <p className="text-lg mb-6 leading-relaxed whitespace-pre-wrap">{question.question_text}</p>
 
       {question.type === 'mcq' ? (
         <div className="space-y-3">

@@ -4,7 +4,8 @@ export type ViolationType = 'tab_switch' | 'blur' | 'cursor_exit';
 
 export const useTabGuard = (
   onViolation: (type: ViolationType) => void,
-  examContainerRef?: React.RefObject<HTMLElement | null>
+  examContainerRef?: React.RefObject<HTMLElement | null>,
+  isDisabled: boolean = false
 ) => {
   const onViolationRef = useRef(onViolation);
   const lastViolationTime = useRef(0);
@@ -15,6 +16,7 @@ export const useTabGuard = (
   }, [onViolation]);
 
   useEffect(() => {
+    if (isDisabled) return;
     console.log('useTabGuard: Initializing listeners with throttle...');
 
     const triggerViolation = (type: ViolationType) => {
@@ -73,5 +75,5 @@ export const useTabGuard = (
       }
       console.log('useTabGuard: Listeners cleaned up');
     };
-  }, [examContainerRef]);
+  }, [examContainerRef, isDisabled]);
 };

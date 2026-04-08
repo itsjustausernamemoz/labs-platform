@@ -674,7 +674,7 @@ const Results: React.FC = () => {
           </button>
           
           <div className="text-center">
-            <h1 className="text-xl font-black tracking-tight text-white font-outfit truncate max-w-sm">{examTitle}</h1>
+            <h1 className="text-xl font-black tracking-tight text-white font-outfit break-words max-w-lg">{examTitle}</h1>
             <div className="flex items-center justify-center gap-2 mt-1">
               <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
               <p className="text-[10px] text-accent/60 font-black uppercase tracking-[0.2em]">Live Intelligence Repository</p>

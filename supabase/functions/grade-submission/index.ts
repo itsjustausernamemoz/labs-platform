@@ -169,32 +169,43 @@ serve(async (req: Request) => {
     // 2. Batched Grade Structured Questions
     if (structuredToGrade.length > 0) {
       const batchPrompt = `
-        You are an expert Academic Marker. Your task is to mark the following structured questions for the exam: "${submission.exams.title}".
-        You must access each entry in the provided JSON to ensure no question is skipped.
-
-        JSON INPUT (Questions & Student Answers):
+        You are a Master Academic Examiner for the examination: "${submission.exams.title}".
+        Your task is to mark the following structured question submissions from a student.
+        
+        INPUT DATA (JSON ARRAY):
         ${JSON.stringify(structuredToGrade, null, 2)}
 
-        CRITICAL INSTRUCTIONS:
-        1. Access every single question ID in the JSON input above.
-        2. Strictly compare the [student_answer] against the [model_answer].
-        3. Do not skip any question from the list. 
-        4. For each ID, provide an "awarded_marks" (integer) and "feedback" (specific to the answer).
-        5. The "awarded_marks" must be between 0 and the "max_marks" for that question.
-
-        RETURN FORMAT:
-        You must return ONLY a JSON response where each key corresponds to the Question ID:
+        MARKING RUBRIC & CONSTRAINTS:
+        1. ACCURACY: Compare the [student_answer] strictly against the [model_answer].
+        2. NO SKIPPING: You must evaluate every single Question ID provided in the INPUT DATA. If a key is missing from your response, the student will incorrectly receive 0.
+        3. SCORING: Award [awarded_marks] between 0 and [max_marks]. Use 0.5 increments if necessary.
+        4. FEEDBACK: Provide concise, professional feedback speaking DIRECTLY to the student in the second person (e.g., "You explained the concept well..." or "Your code is missing...").
+        
+        OUTPUT FORMAT (STRICT JSON ONLY):
+        Return ONLY a raw JSON object where the keys are the Question IDs. Do not include markdown formatting.
+        Example:
         {
-          "question_id_1": { "awarded_marks": X, "feedback": "..." },
-          "question_id_2": { "awarded_marks": Y, "feedback": "..." }
+          "uuid-1": { "awarded_marks": 5, "feedback": "Well explained..." },
+          "uuid-2": { "awarded_marks": 2, "feedback": "Partially correct..." }
         }
       `;
 
       try {
         const result = await callAiWithFallback(batchPrompt)
         const content = result.candidates[0].content.parts[0].text
-        const jsonMatch = content.match(/\{.*\}/s)
-        const batchedGrading = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content)
+        
+        // Robust JSON extraction
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        let batchedGrading: Record<string, any> = {};
+        
+        try {
+          batchedGrading = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+        } catch (parseErr) {
+          console.error("Primary JSON parse failed, attempting cleanup:", parseErr);
+          // Fallback cleanup for common AI formatting issues
+          const cleaned = content.replace(/```json|```/g, '').trim();
+          batchedGrading = JSON.parse(cleaned);
+        }
 
         // Merge batched results into markingDetails
         structuredToGrade.forEach(q => {
@@ -231,7 +242,11 @@ serve(async (req: Request) => {
 
     if (updateError) throw updateError
 
-    return new Response(JSON.stringify({ success: true, score: totalScore }), {
+    return new Response(JSON.stringify({ 
+      success: true, 
+      score: totalScore,
+      marking_details: markingDetails 
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (error) {

@@ -16,6 +16,7 @@ interface Exam {
   exam_type?: 'mcq_only' | 'structured_only' | 'mixed';
   allowed_attempts?: number;
   attempt_count?: number; // Local property for UI
+  exam_mode?: 'closed_book' | 'open_book';
 }
 
 interface Submission {
@@ -84,7 +85,8 @@ const StudentDashboard: React.FC = () => {
             is_active,
             total_marks,
             exam_type,
-            allowed_attempts
+            allowed_attempts,
+            exam_mode
           )
         `)
         .eq('student_id', initialStudentData.id);
@@ -338,6 +340,12 @@ const StudentDashboard: React.FC = () => {
                     <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                     Live Assessment
                   </div>
+                  {exam.exam_mode === 'open_book' && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20 text-[10px] font-black text-green-400 uppercase tracking-widest mb-4 ml-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                      Open Book
+                    </div>
+                  )}
                   <h3 className="text-2xl font-black leading-tight group-hover:text-accent transition-colors font-outfit mb-2">{exam.title}</h3>
                   <div className="flex items-center gap-3 text-[10px] font-bold text-accent/60 uppercase tracking-widest">
                     <span className="px-2 py-0.5 bg-accent/10 rounded-lg">{exam.exam_type?.replace('_', ' ')}</span>
@@ -355,7 +363,7 @@ const StudentDashboard: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2 text-[10px] font-bold text-white/40 uppercase tracking-widest">
                     <BookOpen className="w-3.5 h-3.5" />
-                    Formal Exam
+                    {exam.exam_mode === 'open_book' ? 'Open Resource' : 'Closed Book'}
                   </div>
                 </div>
               </button>

@@ -353,7 +353,7 @@ const StudentResults: React.FC = () => {
                     >
                       <span className={`w-2 h-2 rounded-full shrink-0 mt-2 ${dotColor}`} />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white/80 whitespace-normal break-words">{q.question_text}</p>
+                        <p className="text-sm font-medium text-white/80 whitespace-pre-wrap break-words">{q.question_text}</p>
                         {/* Score bar */}
                         <div className="flex items-center gap-2 mt-1.5">
                           <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
@@ -386,11 +386,46 @@ const StudentResults: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Correct answer */}
-                        {q.correct_answer && (
+                        {/* MCQ Options Display */}
+                        {q.type === 'mcq' && q.options && q.options.length > 0 && (
+                          <div>
+                            <p className="text-[10px] text-white/30 uppercase tracking-[0.15em] font-bold mb-2 flex items-center gap-1">
+                              Options
+                            </p>
+                            <div className="space-y-2">
+                              {q.options.map((opt: string, optIdx: number) => {
+                                const letter = String.fromCharCode(65 + optIdx);
+                                const isStudentChoice = (studentAnswer || '').trim().toUpperCase() === letter;
+                                const isCorrectChoice = (q.correct_answer || '').trim().toUpperCase() === letter;
+                                
+                                let optClasses = 'bg-white/[0.03] border-white/[0.05] text-white/40';
+                                if (isStudentChoice && isCorrectChoice) {
+                                  optClasses = 'bg-green-500/10 border-green-500/30 text-green-400';
+                                } else if (isStudentChoice && !isCorrectChoice) {
+                                  optClasses = 'bg-red-500/10 border-red-500/30 text-red-400';
+                                } else if (isCorrectChoice) {
+                                  optClasses = 'bg-green-500/[0.06] border-green-500/15 text-green-400/60';
+                                }
+
+                                return (
+                                  <div key={optIdx} className={`flex items-center gap-3 p-2.5 rounded-lg border text-xs ${optClasses}`}>
+                                    <span className="w-6 h-6 flex items-center justify-center bg-black/20 rounded-md font-bold text-[10px] shrink-0">{letter}</span>
+                                    <span className="break-words">{opt}</span>
+                                    {isStudentChoice && isCorrectChoice && <CheckCircle2 className="w-3.5 h-3.5 text-green-400 ml-auto shrink-0" />}
+                                    {isStudentChoice && !isCorrectChoice && <XCircle className="w-3.5 h-3.5 text-red-400 ml-auto shrink-0" />}
+                                    {!isStudentChoice && isCorrectChoice && <CheckCircle2 className="w-3.5 h-3.5 text-green-400/50 ml-auto shrink-0" />}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Correct answer (for structured questions only) */}
+                        {q.type !== 'mcq' && q.correct_answer && (
                           <div>
                             <p className="text-[10px] text-green-400/50 uppercase tracking-[0.15em] font-bold mb-1.5 flex items-center gap-1">
-                              <CheckCircle2 className="w-2.5 h-2.5" /> Answer
+                              <CheckCircle2 className="w-2.5 h-2.5" /> Model Answer
                             </p>
                             <pre className="p-3 bg-green-500/[0.04] border border-green-500/15 rounded-xl font-mono text-xs text-green-300/70 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-48">
                               {q.correct_answer}

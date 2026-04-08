@@ -39,14 +39,14 @@ const ExamRoom: React.FC = () => {
   const [lastViolationType, setLastViolationType] = useState<ViolationType>('blur');
 
   const examContainerRef = useRef<HTMLDivElement>(null);
-
+  const isOpenBook = exam?.exam_mode === 'open_book';
   const maxViolations = exam?.allowed_violations || 3;
 
   const lastViolationTime = React.useRef(0);
 
   const handleViolation = useCallback((type: ViolationType) => {
-    if (isSubmitting || showViolationWarning) {
-      console.log('ExamRoom: Violation ignored - isSubmitting:', isSubmitting, 'warningAlreadyShowing:', showViolationWarning);
+    if (isSubmitting || showViolationWarning || isOpenBook) {
+      console.log('ExamRoom: Violation ignored - isSubmitting:', isSubmitting, 'warningAlreadyShowing:', showViolationWarning, 'isOpenBook:', isOpenBook);
       return;
     }
     
@@ -89,6 +89,7 @@ const ExamRoom: React.FC = () => {
   // This prevents a write spike when 1000 students simultaneously trigger
   // a violation (e.g. an OS notification popup across all machines).
   useEffect(() => {
+    if (isOpenBook) return;
     if (violationCount > 0 && student && examId) {
       // Queue this violation for the next flush
       pendingViolations.current.push({ violation_type: lastViolationType });
@@ -114,7 +115,7 @@ const ExamRoom: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [violationCount, student, examId]);
 
-  useTabGuard(handleViolation, examContainerRef);
+  useTabGuard(handleViolation, examContainerRef, isOpenBook);
 
   useEffect(() => {
     const storedStudent = localStorage.getItem('student');
@@ -136,6 +137,8 @@ const ExamRoom: React.FC = () => {
 
   // Prevent right-click and keyboard shortcuts
   useEffect(() => {
+    if (isOpenBook) return;
+    
     const preventDefaults = (e: MouseEvent) => e.preventDefault();
     const handleKeyDown = (e: KeyboardEvent) => {
       const forbiddenKeys = ['F12', 'U', 'I', 'J']; // 'C' intentionally allowed so students can copy questions
@@ -710,11 +713,16 @@ const ExamRoom: React.FC = () => {
       <header className="fixed top-0 left-0 right-0 z-40 bg-primary/80 backdrop-blur-md border-b border-white/10 p-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-accent/10 rounded-lg">
-              <Shield className="w-5 h-5 text-accent" />
+            <div className={`p-2 rounded-lg ${isOpenBook ? 'bg-green-500/10' : 'bg-accent/10'}`}>
+              <Shield className={`w-5 h-5 ${isOpenBook ? 'text-green-500' : 'text-accent'}`} />
             </div>
             <div>
-              <h1 className="font-bold text-lg leading-none">{exam.title}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="font-bold text-lg leading-none">{exam.title}</h1>
+                {isOpenBook && (
+                  <span className="px-2 py-0.5 rounded-md bg-green-500 text-primary text-[8px] font-black uppercase tracking-widest">Open Book</span>
+                )}
+              </div>
               <p className="text-xs text-panel/40 mt-1 uppercase tracking-tighter">Secure Session ID: {examId?.slice(0, 8)}</p>
             </div>
           </div>
@@ -736,14 +744,28 @@ const ExamRoom: React.FC = () => {
 
       {/* Main Content */}
       <main ref={examContainerRef} className="max-w-7xl mx-auto pt-24 pb-32 px-6">
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-12 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-200">
-            <span className="font-bold text-red-500 uppercase">Warning:</span> All activity is being monitored.
-            Switching tabs, minimizing the browser, or <strong>moving the cursor outside this window</strong> will result in a violation.
-            {maxViolations} violations will trigger automatic submission with a score of 0.
-          </p>
-        </div>
+        {!isOpenBook && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-12 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+            <p className="text-sm text-red-200">
+              <span className="font-bold text-red-500 uppercase">Warning:</span> All activity is being monitored.
+              Switching tabs, minimizing the browser, or <strong>moving the cursor outside this window</strong> will result in a violation.
+              {maxViolations} violations will trigger automatic submission with a score of 0.
+            </p>
+          </div>
+        )}
+
+        {isOpenBook && (
+          <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 mb-12 flex items-start gap-3">
+            <div className="p-1 bg-green-500 rounded-md">
+              <Shield className="w-3.5 h-3.5 text-primary" />
+            </div>
+            <p className="text-sm text-green-200">
+              <span className="font-bold text-green-500 uppercase">Open Book Mode:</span> Security restrictions and violation monitoring are disabled for this assessment. 
+              You may freely switch tabs and access external resources.
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
           {/* Main Question Column */}
@@ -931,11 +953,12 @@ const ExamRoom: React.FC = () => {
           <span>Student: {student?.student_number}</span>
           <div className="flex items-center gap-6">
             <span className="flex items-center gap-1">
-              <MousePointer className="w-3 h-3 text-accent" />
-              Monitoring Active
+              <MousePointer className={`w-3 h-3 ${isOpenBook ? 'text-green-500' : 'text-accent'}`} />
+              {isOpenBook ? 'Open Book Environment' : 'Monitoring Active'}
             </span>
           </div>
-          <span>Violations: {violationCount}/{maxViolations}</span>
+          {!isOpenBook && <span>Violations: {violationCount}/{maxViolations}</span>}
+          {isOpenBook && <span className="text-green-500/40">Verified Mode</span>}
         </div>
       </footer>
 

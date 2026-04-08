@@ -80,33 +80,31 @@ const SubmissionReview: React.FC = () => {
         }
       });
 
-      // 2. AI Structured Marking (Optional/Async-ish)
-      const structured = questions.filter(q => q.type === 'structured');
-      if (structured.length > 0) {
-        showToast('Invoking AI for structured questions...', 'info');
-        try {
-          const promptData = structured.map(q => ({ 
-            id: q.id, question: q.question_text, max_marks: q.marks, 
-            model_answer: q.correct_answer, student_answer: submission.answers[q.id] || "NO ANSWER"
-          }));
-          const { data, error } = await supabase.functions.invoke('grade-submission', { body: { prompt: `Return JSON mapping question ID to { "marks": number, "feedback": "string" }. Data: ${JSON.stringify(promptData)}` } });
-          
-          if (!error && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-            const raw = data.candidates[0].content.parts[0].text;
-            const aiRes = JSON.parse(raw.replace(/```json|```/g, '').trim());
-            Object.keys(aiRes).forEach(id => {
-              newO[id] = aiRes[id].marks;
-              newF[id] = aiRes[id].feedback;
-            });
-          }
-        } catch (aiErr) {
-          console.error('AI marking failed:', aiErr);
-        }
+      const { data, error } = await supabase.functions.invoke('grade-submission', { 
+        body: { submissionId: submission.id } 
+      });
+      
+      if (error) throw error;
+      
+      if (data?.marking_details) {
+        setOverrides(prev => {
+          const updated = { ...prev };
+          Object.keys(data.marking_details).forEach(id => {
+            updated[id] = data.marking_details[id].awarded_marks;
+          });
+          return updated;
+        });
+        
+        setFeedbackOverrides(prev => {
+          const updated = { ...prev };
+          Object.keys(data.marking_details).forEach(id => {
+            updated[id] = data.marking_details[id].feedback;
+          });
+          return updated;
+        });
+        
+        showToast('Automarking complete!', 'success');
       }
-
-      setOverrides(newO);
-      setFeedbackOverrides(newF);
-      showToast('Automarking complete!', 'success');
     } catch (err) {
       console.error(err);
       showToast('Automarking failed.', 'error');
@@ -119,12 +117,47 @@ const SubmissionReview: React.FC = () => {
     if (!submission) return;
     setMarkingSingleId(q.id);
     try {
-      const { data, error } = await supabase.functions.invoke('grade-submission', { body: { prompt: `Grade Question: ${q.question_text}, Student: ${submission.answers[q.id]}, Max: ${q.marks}. Return JSON { "marks": number, "feedback": "string" }` } });
+      const studentAnswer = submission.answers[q.id] || '(No answer provided)';
+      const modelAnswer = q.correct_answer || '';
+      
+      const prompt = `
+        You are a highly accurate academic examiner. Mark the following structured answer.
+        
+        QUESTION: "${q.question_text}"
+        MAX MARKS POSSIBLE: ${q.marks}
+        EXPECTED MODEL ANSWER: "${modelAnswer}"
+        
+        STUDENT ANSWER: "${studentAnswer}"
+        
+        INSTRUCTIONS:
+        1. Compare the student answer against the model answer.
+        2. Assign "marks" (integer or 0.5 increment, not exceeding ${q.marks}).
+        3. Provide concise, constructive "feedback" speaking DIRECTLY to the student in the second person (e.g., "You correctly identified..." or "Your answer missed...").
+        
+        RESPONSE FORMAT:
+        You must return ONLY a JSON object:
+        { "marks": number, "feedback": "string" }
+      `;
+
+      const { data, error } = await supabase.functions.invoke('grade-submission', { 
+        body: { prompt } 
+      });
+      
       if (error) throw error;
-      const res = JSON.parse(data?.candidates?.[0]?.content?.parts?.[0]?.text.replace(/```json|```/g, '').trim());
-      setOverrides({ ...overrides, [q.id]: res.marks }); setFeedbackOverrides({ ...feedbackOverrides, [q.id]: res.feedback });
-      showToast('AI Marked', 'success');
-    } catch (err) { console.error(err); showToast('Fail', 'error'); } finally { setMarkingSingleId(null); }
+      
+      const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const jsonMatch = content.match(/\{.*\}/s);
+      const res = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
+      
+      setOverrides({ ...overrides, [q.id]: res.marks }); 
+      setFeedbackOverrides({ ...feedbackOverrides, [q.id]: res.feedback });
+      showToast('AI Audit Complete', 'success');
+    } catch (err) { 
+      console.error(err); 
+      showToast('Marking failed.', 'error'); 
+    } finally { 
+      setMarkingSingleId(null); 
+    }
   };
 
   const handleSave = async () => {
@@ -172,7 +205,7 @@ const SubmissionReview: React.FC = () => {
           <button onClick={() => navigate(-1)} className="p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-all"><ArrowLeft size={20} /></button>
           <div>
             <div className="flex items-center gap-3">
-              <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">{submission.exams.title}</p>
+              <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] break-words max-w-sm">{submission.exams.title}</p>
               {submission.exams.exam_type && (
                 <span className="px-2 py-0.5 bg-[#00E5FF]/10 text-[#00E5FF] rounded-lg text-[10px] uppercase font-black tracking-widest border border-[#00E5FF]/20">
                   {submission.exams.exam_type.replace('_', ' ')}
@@ -220,64 +253,71 @@ const SubmissionReview: React.FC = () => {
             const isCorrect = q.type === 'mcq' && (stud === corr || (stud.length === 1 && (corr.startsWith(stud + ".") || corr.startsWith(stud + " "))));
 
             return (
-              <div key={q.id} className="bg-white/5 p-10 rounded-[2.5rem] border border-white/5 hover:border-white/10 transition-all">
-                <div className="flex justify-between items-start gap-12 mb-8">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-4 mb-4">
-                      <span className="w-12 h-12 flex items-center justify-center bg-[#00E5FF]/10 text-[#00E5FF] rounded-xl font-black">{idx + 1}</span>
-                      <h4 className="text-xl font-black uppercase tracking-tight">{q.type} Identification</h4>
-                      {q.type === 'mcq' && <span className={`px-3 py-1 rounded-lg text-xs font-black uppercase ${isCorrect ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>{isCorrect ? 'Logic Match' : 'Logic Mismatch'}</span>}
-                    </div>
-                    <h3 className="text-2xl font-bold mb-6 italic opacity-90">"{q.question_text}"</h3>
-                    
-                    <div className="grid grid-cols-2 gap-8">
-                      <div>
-                        <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-4">Candidate Output</p>
-                        <div className="p-6 bg-black/40 rounded-2xl border border-white/5 min-h-[100px]">
-                           <pre className="text-sm font-mono opacity-80 whitespace-pre-wrap">{submission.answers[q.id] || 'NULL_DATA'}</pre>
-                           {q.type === 'mcq' && q.options && (
-                             <div className="mt-8 space-y-3">
-                               {q.options.map((opt, i) => {
-                                 const char = String.fromCharCode(65 + i);
-                                 const isSel = (submission.answers[q.id] || '').trim().toUpperCase() === char;
-                                 const isCor = (q.correct_answer || '').trim().toUpperCase() === char;
-                                 return (
-                                   <div key={i} className={`p-4 rounded-xl text-sm flex items-center gap-4 border ${isSel ? isCor ? 'bg-green-500/10 border-green-500/30 text-green-500' : 'bg-red-500/10 border-red-500/30 text-red-500' : isCor ? 'bg-green-500/5 border-green-500/10 text-green-500/60' : 'bg-white/5 border-transparent opacity-40'}`}>
-                                      <span className="w-8 h-8 flex items-center justify-center bg-black/20 rounded-lg font-black">{char}</span>
-                                      {opt}
-                                   </div>
-                                 );
-                               })}
-                             </div>
-                           )}
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black text-[#00E5FF]/30 uppercase tracking-[0.2em] mb-4">Baseline Model</p>
-                        <div className="p-6 bg-[#00E5FF]/5 rounded-2xl border border-[#00E5FF]/10 min-h-[100px]">
-                          <pre className="text-sm font-mono text-[#00E5FF]/80 whitespace-pre-wrap">{q.correct_answer}</pre>
-                        </div>
-                      </div>
+              <div key={q.id} className="bg-white/5 rounded-[2.5rem] border border-white/5 hover:border-white/10 transition-all overflow-hidden">
+                {/* ── Question Header ── */}
+                <div className="flex items-center justify-between gap-4 px-10 pt-8 pb-4">
+                  <div className="flex items-center gap-4">
+                    <span className="w-12 h-12 flex items-center justify-center bg-[#00E5FF]/10 text-[#00E5FF] rounded-xl font-black">{idx + 1}</span>
+                    <div>
+                      <h4 className="text-sm font-black uppercase tracking-widest text-white/40">{q.type === 'mcq' ? 'Multiple Choice' : 'Structured / Essay'}</h4>
+                      {q.type === 'mcq' && <span className={`inline-block mt-1 px-3 py-0.5 rounded-lg text-[10px] font-black uppercase ${isCorrect ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>{isCorrect ? 'Correct' : 'Incorrect'}</span>}
                     </div>
                   </div>
-
-                  <div className="w-64 flex flex-col items-end gap-6 pt-2">
-                    <div className="bg-black/60 p-6 rounded-3xl border border-white/5 flex flex-col items-center">
-                       <p className="text-[10px] font-black opacity-30 mb-2 uppercase">Weighting</p>
-                       <div className="flex items-center gap-2">
-                         <input type="number" step="0.5" value={awarded} onChange={(e) => handleOverrideChange(q.id, parseFloat(e.target.value) || 0, q.marks)} className="bg-transparent text-center text-4xl font-black text-[#00E5FF] outline-none w-20" />
-                         <span className="text-xl opacity-20">/ {q.marks}</span>
-                       </div>
+                  <div className="flex items-center gap-4">
+                    <div className="bg-black/40 px-5 py-3 rounded-2xl border border-white/5 flex items-center gap-2">
+                      <input type="number" step="0.5" value={awarded} onChange={(e) => handleOverrideChange(q.id, parseFloat(e.target.value) || 0, q.marks)} className="bg-transparent text-center text-2xl font-black text-[#00E5FF] outline-none w-16" />
+                      <span className="text-lg opacity-20">/ {q.marks}</span>
                     </div>
-                    <button onClick={() => handleMarkSingle(q)} disabled={markingSingleId === q.id} className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]/40 hover:text-[#00E5FF] transition-all flex items-center gap-2">
-                      {markingSingleId === q.id ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} AI Audit Question
+                    <button onClick={() => handleMarkSingle(q)} disabled={markingSingleId === q.id} className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]/40 hover:text-[#00E5FF] transition-all flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-[#00E5FF]/5">
+                      {markingSingleId === q.id ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} AI Audit
                     </button>
                   </div>
                 </div>
 
-                <div>
-                   <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-4">Contextual Feedback</p>
-                   <textarea value={feedback} onChange={(e) => handleFeedbackChange(q.id, e.target.value)} placeholder="Type notes for candidate..." className="w-full h-32 bg-white/5 p-6 rounded-2xl border border-white/5 outline-none focus:border-[#00E5FF]/30 transition-all text-sm italic" />
+                {/* ── Question Text ── */}
+                <div className="px-10 pb-6">
+                  <p className="text-lg font-medium text-white/85 leading-relaxed whitespace-pre-wrap">{q.question_text}</p>
+                </div>
+
+                {/* ── Answers Section ── */}
+                <div className="px-10 pb-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Student Answer */}
+                    <div>
+                      <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-3">Student's Answer</p>
+                      <div className="p-5 bg-black/30 rounded-2xl border border-white/5 min-h-[80px]">
+                        <pre className="text-sm font-mono opacity-80 whitespace-pre-wrap break-words">{submission.answers[q.id] || '(No answer provided)'}</pre>
+                        {q.type === 'mcq' && q.options && (
+                          <div className="mt-5 space-y-2">
+                            {q.options.map((opt, i) => {
+                              const char = String.fromCharCode(65 + i);
+                              const isSel = (submission.answers[q.id] || '').trim().toUpperCase() === char;
+                              const isCor = (q.correct_answer || '').trim().toUpperCase() === char;
+                              return (
+                                <div key={i} className={`p-3 rounded-xl text-sm flex items-center gap-3 border ${isSel ? isCor ? 'bg-green-500/10 border-green-500/30 text-green-500' : 'bg-red-500/10 border-red-500/30 text-red-500' : isCor ? 'bg-green-500/5 border-green-500/10 text-green-500/60' : 'bg-white/5 border-transparent opacity-40'}`}>
+                                   <span className="w-7 h-7 flex items-center justify-center bg-black/20 rounded-lg font-black text-xs">{char}</span>
+                                   <span className="break-words">{opt}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {/* Model Answer */}
+                    <div>
+                      <p className="text-[10px] font-black text-[#00E5FF]/30 uppercase tracking-[0.2em] mb-3">Model Answer</p>
+                      <div className="p-5 bg-[#00E5FF]/5 rounded-2xl border border-[#00E5FF]/10 min-h-[80px]">
+                        <pre className="text-sm font-mono text-[#00E5FF]/80 whitespace-pre-wrap break-words">{q.correct_answer || '(No model answer set)'}</pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Feedback ── */}
+                <div className="px-10 pb-8">
+                  <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-3">Feedback to Student</p>
+                  <textarea value={feedback} onChange={(e) => handleFeedbackChange(q.id, e.target.value)} placeholder="Add feedback for this question..." className="w-full h-28 bg-white/[0.03] p-5 rounded-2xl border border-white/5 outline-none focus:border-[#00E5FF]/30 transition-all text-sm leading-relaxed resize-none" />
                 </div>
               </div>
             );
