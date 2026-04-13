@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@shared/lib/supabase';
 import {
   BookOpen, Clock, ChevronRight, ArrowRight,
-  LogOut, GraduationCap, ShieldCheck, AlertCircle, Loader2
+  LogOut, GraduationCap, ShieldCheck, AlertCircle, Loader2, Terminal
 } from 'lucide-react';
 import { useNotification } from '@shared/components/NotificationProvider';
 
@@ -17,6 +17,8 @@ interface Exam {
   allowed_attempts?: number;
   attempt_count?: number; // Local property for UI
   exam_mode?: 'closed_book' | 'open_book';
+  has_coding?: boolean;
+  coding_language?: string | null;
 }
 
 interface Submission {
@@ -278,16 +280,23 @@ const StudentDashboard: React.FC = () => {
       </nav>
 
       <main className="max-w-6xl mx-auto px-6 py-12 relative z-10">
-        <header className="mb-16 flex flex-col md:flex-row md:items-end justify-between gap-8">
+        <header className="mb-16 flex flex-col lg:flex-row lg:items-center justify-between gap-8">
           <div className="space-y-2">
             <h1 className="text-5xl font-black tracking-tight font-outfit">Assessments</h1>
             <p className="text-white/40 text-lg max-w-xl">
-              Welcome back. Your active examinations and previous performance reports are detailed below.
+              Welcome back. Access your active examinations and verify your system compatibility.
             </p>
           </div>
           
-          <div className="w-full md:w-auto">
-            <form onSubmit={handleJoinExam} className="glass-panel p-1.5 rounded-2xl flex items-center gap-2 group focus-within:ring-2 focus-within:ring-accent/30 transition-all">
+          <div className="flex flex-col md:flex-row items-center gap-4">
+            <button 
+              onClick={() => navigate('/env-check')}
+              className="glass-button bg-white/5 text-white border-white/10 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-white/10 transition-all shadow-xl w-full md:w-auto"
+            >
+              <Terminal className="w-5 h-5 text-accent" /> Verify Compiler Environment
+            </button>
+
+            <form onSubmit={handleJoinExam} className="glass-panel p-1.5 rounded-2xl flex items-center gap-2 group focus-within:ring-2 focus-within:ring-accent/30 transition-all w-full md:w-auto">
               <div className="flex items-center gap-3 pl-4">
                 <ShieldCheck className="w-5 h-5 text-white/20 group-focus-within:text-accent transition-colors" />
                 <input
@@ -295,7 +304,7 @@ const StudentDashboard: React.FC = () => {
                   placeholder="EXAM CODE"
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                  className="bg-transparent border-none outline-none py-2 text-sm font-black tracking-[0.3em] w-32 placeholder:text-white/10 placeholder:tracking-normal"
+                  className="bg-transparent border-none outline-none py-2 text-sm font-black tracking-[0.3em] w-32 placeholder:text-white/10 placeholder:tracking-normal text-white"
                   maxLength={6}
                 />
               </div>

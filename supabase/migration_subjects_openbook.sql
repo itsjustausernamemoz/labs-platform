@@ -21,3 +21,7 @@ ALTER TABLE exams ADD COLUMN IF NOT EXISTS subject_id UUID REFERENCES subjects(i
 
 -- 3. Add exam_mode column to exams (closed_book by default)
 ALTER TABLE exams ADD COLUMN IF NOT EXISTS exam_mode TEXT DEFAULT 'closed_book';
+
+-- 4. Add coding assessment configuration
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS has_coding BOOLEAN DEFAULT FALSE;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS coding_language TEXT DEFAULT NULL; -- e.g. 'kotlin', 'python'

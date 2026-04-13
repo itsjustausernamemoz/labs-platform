@@ -789,6 +789,8 @@ const ExamRoom: React.FC = () => {
                   index={currentQuestionIndex}
                   answer={answers[questions[currentQuestionIndex].id]}
                   onChange={(val) => setAnswers({ ...answers, [questions[currentQuestionIndex].id]: val })}
+                  hasCoding={exam?.has_coding}
+                  language={exam?.coding_language}
                 />
 
                 {/* Pagination Controls */}

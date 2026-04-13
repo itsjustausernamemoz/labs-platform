@@ -5,7 +5,7 @@ import {
   Plus, FileUp, Trash2, Eye, EyeOff,
   Save, Edit3, UserPlus, ShieldCheck, Download,
   User, X, Lock, Clock, RotateCcw, Copy,
-  BarChart3, LogOut, Loader2, Settings, BookOpen, FolderOpen
+  BarChart3, LogOut, Loader2, Settings, BookOpen, FolderOpen, Code2, Terminal
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNotification } from '@shared/components/NotificationProvider';
@@ -24,6 +24,8 @@ interface Exam {
   exam_type: 'mcq_only' | 'structured_only' | 'mixed';
   subject_id?: string | null;
   exam_mode?: 'closed_book' | 'open_book';
+  has_coding?: boolean;
+  coding_language?: string | null;
 }
 
 interface LecturerProfile {
@@ -74,7 +76,9 @@ const LecturerDashboard: React.FC = () => {
     enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
     exam_type: 'mixed' as 'mcq_only' | 'structured_only' | 'mixed',
     subject_id: null as string | null,
-    exam_mode: 'closed_book' as 'closed_book' | 'open_book'
+    exam_mode: 'closed_book' as 'closed_book' | 'open_book',
+    has_coding: false,
+    coding_language: 'kotlin'
   });
   const [editingSettings, setEditingSettings] = useState<ExamWithStats | null>(null);
   const [editingExamQuestions, setEditingExamQuestions] = useState<ExamWithStats | null>(null);
@@ -242,6 +246,7 @@ const LecturerDashboard: React.FC = () => {
       const { data: ownExams, error: ownError } = await supabase
         .from('exams')
         .select('*')
+        .eq('lecturer_id', user.id)
         .order('created_at', { ascending: false });
 
       if (ownError) throw ownError;
@@ -334,7 +339,9 @@ const LecturerDashboard: React.FC = () => {
           enrollment_code: newExam.enrollment_code,
           exam_type: newExam.exam_type,
           subject_id: newExam.subject_id,
-          exam_mode: newExam.exam_mode
+          exam_mode: newExam.exam_mode,
+          has_coding: newExam.has_coding,
+          coding_language: newExam.coding_language
         }])
         .select()
         .single();
@@ -358,7 +365,9 @@ const LecturerDashboard: React.FC = () => {
         enrollment_code: Math.random().toString(36).substring(2, 8).toUpperCase(),
         exam_type: 'mixed',
         subject_id: null,
-        exam_mode: 'closed_book'
+        exam_mode: 'closed_book',
+        has_coding: false,
+        coding_language: 'kotlin'
       });
       showToast('Assessment created successfully!', 'success');
     } catch (err: any) {
@@ -648,16 +657,21 @@ const LecturerDashboard: React.FC = () => {
         .update({
           title: editingSettings.title,
           duration_minutes: editingSettings.duration_minutes,
+          total_marks: editingSettings.total_marks,
           allowed_violations: editingSettings.allowed_violations,
           allowed_attempts: editingSettings.allowed_attempts,
           exam_type: editingSettings.exam_type,
           subject_id: (editingSettings as any).subject_id,
-          exam_mode: (editingSettings as any).exam_mode
+          exam_mode: (editingSettings as any).exam_mode,
+          has_coding: (editingSettings as any).has_coding,
+          coding_language: (editingSettings as any).coding_language
         })
         .eq('id', editingSettings.id);
 
       if (error) throw error;
-      setExams(exams.map(ex => ex.id === editingSettings.id ? editingSettings : ex));
+      
+      // Update local state by merging the edited settings with existing metadata
+      setExams(exams.map(ex => ex.id === editingSettings.id ? { ...ex, ...editingSettings } : ex));
       setEditingSettings(null);
       showToast('Settings updated successfully!', 'success');
     } catch (err: any) {
@@ -711,7 +725,7 @@ const LecturerDashboard: React.FC = () => {
 
         {isEditingProfile && (
           <div className="fixed inset-0 bg-[#0A1024]/80 backdrop-blur-xl flex items-center justify-center z-[100] p-6 animate-in fade-in duration-300">
-            <div className="glass-panel max-w-xl w-full p-10 rounded-[3rem] shadow-2xl relative">
+            <div className="glass-panel max-w-xl w-full max-h-[90vh] overflow-y-auto p-10 rounded-[3rem] shadow-2xl relative">
               <div className="flex justify-between items-center mb-10">
                 <h2 className="text-3xl font-black tracking-tight font-outfit">Security & Profile</h2>
                 <button onClick={() => setIsEditingProfile(false)} className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10"><X className="w-6 h-6 text-white/30" /></button>
@@ -740,7 +754,7 @@ const LecturerDashboard: React.FC = () => {
 
         {isCreating && (
           <div className="fixed inset-0 bg-[#0A1024]/80 backdrop-blur-xl flex items-center justify-center z-[100] p-6 animate-in zoom-in-95 duration-300">
-            <div className="glass-panel max-w-xl w-full p-10 rounded-[3rem] shadow-2xl relative overflow-hidden">
+            <div className="glass-panel max-w-xl w-full max-h-[90vh] overflow-y-auto p-10 rounded-[3rem] shadow-2xl relative">
               <div className="flex justify-between items-center mb-10">
                 <div>
                   <h2 className="text-3xl font-black tracking-tight font-outfit text-white">New Assessment</h2>
@@ -759,17 +773,17 @@ const LecturerDashboard: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Duration (Minutes)</label>
+                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Duration (Min)</label>
                     <div className="relative">
                       <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
                       <input type="number" required value={newExam.duration} onChange={(e) => setNewExam({ ...newExam, duration: parseInt(e.target.value) || 60 })} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white shadow-inner" />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Enrollment Code</label>
+                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Allowed Attempts</label>
                     <div className="relative">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                      <input type="text" required value={newExam.enrollment_code} onChange={(e) => setNewExam({ ...newExam, enrollment_code: e.target.value.toUpperCase() })} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white font-mono tracking-widest uppercase" maxLength={6} />
+                      <RotateCcw className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
+                      <input type="number" required value={newExam.allowed_attempts || 1} onChange={(e) => setNewExam({ ...newExam, allowed_attempts: parseInt(e.target.value) || 1 })} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white" min="1" />
                     </div>
                   </div>
                 </div>
@@ -836,15 +850,50 @@ const LecturerDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-3 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Total Marks</label>
                     <input type="number" required value={newExam.total_marks} onChange={(e) => setNewExam({ ...newExam, total_marks: parseInt(e.target.value) || 100 })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white" />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Allowed Violations</label>
+                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Violation Limit</label>
                     <input type="number" required value={newExam.allowed_violations} onChange={(e) => setNewExam({ ...newExam, allowed_violations: parseInt(e.target.value) || 3 })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white" />
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Enrollment Code</label>
+                    <input type="text" required value={newExam.enrollment_code} onChange={(e) => setNewExam({ ...newExam, enrollment_code: e.target.value.toUpperCase() })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white font-mono uppercase" maxLength={6} />
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 space-y-4">
+                  <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10 transition-all hover:bg-white/[0.08]">
+                    <div className="flex items-center gap-4">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${newExam.has_coding ? 'bg-[#00E5FF]/20 text-[#00E5FF]' : 'bg-white/5 text-white/20'}`}>
+                        <Code2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-widest">Coding Assessment</p>
+                        <p className="text-[10px] text-white/30 font-bold uppercase mt-0.5">Allow students to run scripts</p>
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => setNewExam({...newExam, has_coding: !newExam.has_coding})} className={`w-12 h-6 rounded-full transition-all relative ${newExam.has_coding ? 'bg-[#00E5FF]' : 'bg-white/10'}`}>
+                      <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${newExam.has_coding ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+
+                  {newExam.has_coding && (
+                    <div className="grid grid-cols-1 gap-4 animate-in slide-in-from-top-2 duration-300">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Integrated Compiler</label>
+                        <div className="relative">
+                          <Terminal className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#00E5FF]/40" />
+                          <select value={newExam.coding_language || 'kotlin'} onChange={(e) => setNewExam({ ...newExam, coding_language: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white appearance-none cursor-pointer">
+                            <option value="kotlin" className="bg-[#0D1117]">Kotlin (JVM/JS)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <button type="submit" disabled={isSubmitting} className="w-full glass-button bg-accent text-[#0A1024] py-5 rounded-3xl font-black text-xs uppercase tracking-[0.2em] hover:scale-[1.02] shadow-[0_0_40px_rgba(0,229,255,0.2)] flex items-center justify-center gap-3 transition-all">
@@ -857,7 +906,7 @@ const LecturerDashboard: React.FC = () => {
 
         {isCollaborating && (
           <div className="fixed inset-0 bg-[#0A1024]/80 backdrop-blur-xl flex items-center justify-center z-[100] p-6 animate-in fade-in zoom-in-95 duration-300">
-            <div className="glass-panel max-w-md w-full p-10 rounded-[3rem] shadow-2xl relative overflow-hidden">
+            <div className="glass-panel max-w-md w-full max-h-[90vh] overflow-y-auto p-10 rounded-[3rem] shadow-2xl relative">
               <div className="absolute top-0 left-0 w-full h-1 bg-accent/20" />
               <h2 className="text-3xl font-black tracking-tight font-outfit mb-2 text-white">Co-Marker Access</h2>
               <p className="text-white/40 text-xs font-bold uppercase tracking-widest mb-10">Delegate Assessment Permissions</p>
@@ -1109,7 +1158,7 @@ const LecturerDashboard: React.FC = () => {
       {/* Edit Settings Modal */}
       {editingSettings && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-[#0A1024]/80 backdrop-blur-md">
-          <div className="glass-panel w-full max-w-lg rounded-[2.5rem] border border-white/10 overflow-hidden animate-in zoom-in-95 duration-300">
+          <div className="glass-panel w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[2.5rem] border border-white/10 animate-in zoom-in-95 duration-300">
             <div className="p-10">
               <div className="flex justify-between items-center mb-10">
                 <div>
@@ -1126,7 +1175,11 @@ const LecturerDashboard: React.FC = () => {
                     <input type="text" value={editingSettings.title} onChange={(e) => setEditingSettings({...editingSettings, title: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" placeholder="e.g. Advanced Microbiology 101" required />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-3 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Total Marks</label>
+                      <input type="number" value={editingSettings.total_marks} onChange={(e) => setEditingSettings({...editingSettings, total_marks: parseInt(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" required />
+                    </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Duration (Min)</label>
                       <input type="number" value={editingSettings.duration_minutes} onChange={(e) => setEditingSettings({...editingSettings, duration_minutes: parseInt(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" required />
@@ -1187,6 +1240,37 @@ const LecturerDashboard: React.FC = () => {
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="pt-6 border-t border-white/5 space-y-4">
+                    <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10 transition-all hover:bg-white/[0.08]">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${(editingSettings as any).has_coding ? 'bg-[#00E5FF]/20 text-[#00E5FF]' : 'bg-white/5 text-white/20'}`}>
+                          <Code2 className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-widest">Coding Assessment</p>
+                          <p className="text-[10px] text-white/30 font-bold uppercase mt-0.5">Allow students to run scripts</p>
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => setEditingSettings({...editingSettings, has_coding: !(editingSettings as any).has_coding} as any)} className={`w-12 h-6 rounded-full transition-all relative ${(editingSettings as any).has_coding ? 'bg-[#00E5FF]' : 'bg-white/10'}`}>
+                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${(editingSettings as any).has_coding ? 'left-7' : 'left-1'}`} />
+                      </button>
+                    </div>
+
+                    {(editingSettings as any).has_coding && (
+                      <div className="grid grid-cols-1 gap-4 animate-in slide-in-from-top-2 duration-300">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Integrated Compiler</label>
+                          <div className="relative">
+                            <Terminal className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#00E5FF]/40" />
+                            <select value={(editingSettings as any).coding_language || 'kotlin'} onChange={(e) => setEditingSettings({ ...editingSettings, coding_language: e.target.value } as any)} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white appearance-none cursor-pointer">
+                              <option value="kotlin" className="bg-[#0D1117]">Kotlin (JVM/JS)</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
