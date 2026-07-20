@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@shared/lib/supabase';
+import { supabase } from '@shared/lib/apiClient';
 import {
-  Plus, FileUp, Trash2, Eye, EyeOff,
-  Save, Edit3, UserPlus, ShieldCheck, Download,
+  Plus, FileUp, Trash2,
+  Save, Edit3, UserPlus, ShieldCheck,
   User, X, Lock, Clock, RotateCcw, Copy,
   BarChart3, LogOut, Loader2, Settings, BookOpen, FolderOpen, Code2, Terminal
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNotification } from '@shared/components/NotificationProvider';
+import logo from '@shared/assets/mashoke-logo.png';
 
 
 interface Exam {
@@ -126,13 +127,15 @@ const LecturerDashboard: React.FC = () => {
       setProfile(data);
       setEditedName(data.full_name);
     } else {
-      // Create initial profile if it doesn't exist
+      // Every lecturer's profile row is created atomically by /auth/signup —
+      // this should be unreachable, but fall back to a local-only display
+      // profile rather than a guaranteed-to-fail insert (lecturer_profiles
+      // rows can only be created server-side during signup).
       const newProfile = {
         id: user.id,
         full_name: user.email?.split('@')[0] || 'Lecturer',
         email: user.email || ''
       };
-      await supabase.from('lecturer_profiles').insert([newProfile]);
       setProfile(newProfile);
       setEditedName(newProfile.full_name);
     }
@@ -252,7 +255,7 @@ const LecturerDashboard: React.FC = () => {
       if (ownError) throw ownError;
 
       const examsWithStats: ExamWithStats[] = await Promise.all(
-        (ownExams || []).map(async (exam) => {
+        (ownExams || []).map(async (exam: any) => {
           const [totalResult, gradedResult, submissionsResult] = await Promise.all([
             supabase
               .from('submissions')
@@ -272,7 +275,7 @@ const LecturerDashboard: React.FC = () => {
 
           const subs = submissionsResult.data || [];
           const avgScore = subs.length > 0
-            ? (subs.reduce((acc, curr) => acc + (curr.score / (curr.total_marks || 1)), 0) / subs.length * 100)
+            ? (subs.reduce((acc: number, curr: any) => acc + (curr.score / (curr.total_marks || 1)), 0) / subs.length * 100)
             : 0;
 
           return {
@@ -462,27 +465,10 @@ const LecturerDashboard: React.FC = () => {
     setIsSavingQuestions(true);
 
     try {
-      const { error: delError } = await supabase
-        .from('questions')
-        .delete()
-        .eq('exam_id', editingExamQuestions.id);
+      const rows = questions.map(({ id, ...rest }) => rest);
+      const { error } = await supabase.questions.bulkReplace(editingExamQuestions.id, rows);
+      if (error) throw error;
 
-      if (delError) throw delError;
-
-      const toInsert = questions.map((q, idx) => {
-        const { id, ...rest } = q;
-        return {
-          ...rest,
-          exam_id: editingExamQuestions.id,
-          order_index: idx
-        };
-      });
-
-      const { error: insError } = await supabase
-        .from('questions')
-        .insert(toInsert);
-
-      if (insError) throw insError;
       setEditingExamQuestions(null);
       showToast('Questions saved successfully!', 'success');
     } catch (err) {
@@ -522,7 +508,7 @@ const LecturerDashboard: React.FC = () => {
 
       if (upsertError) throw upsertError;
 
-      const enrollmentsToUpsert = (upsertedStudents || []).map(s => ({
+      const enrollmentsToUpsert = (upsertedStudents || []).map((s: any) => ({
         exam_id: examId,
         student_id: s.id
       }));
@@ -571,7 +557,6 @@ const LecturerDashboard: React.FC = () => {
         ].map(v => v?.toString() || '').filter(opt => opt !== '') : null;
 
         return {
-          exam_id: examId,
           question_text: getVal(['question_text', 'question', 'text'])?.toString() || `Question ${idx + 1}`,
           type,
           options,
@@ -582,11 +567,8 @@ const LecturerDashboard: React.FC = () => {
         };
       });
 
-      const { error: delError } = await supabase.from('questions').delete().eq('exam_id', examId);
-      if (delError) throw delError;
-
-      const { error: insError } = await supabase.from('questions').insert(mappedQuestions);
-      if (insError) throw insError;
+      const { error } = await supabase.questions.bulkReplace(examId, mappedQuestions);
+      if (error) throw error;
 
       showToast(`${mappedQuestions.length} questions uploaded!`, 'success');
       if (editingExamQuestions?.id === examId) fetchQuestions(examId);
@@ -686,302 +668,307 @@ const LecturerDashboard: React.FC = () => {
     navigate('/');
   };
 
+  const chipStyle = (active: boolean): React.CSSProperties => ({
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px', fontSize: 11, fontWeight: 700,
+    textTransform: 'uppercase', letterSpacing: '0.04em', border: '1px solid var(--color-divider)',
+    background: active ? 'var(--color-accent)' : 'transparent', color: active ? 'var(--color-bg)' : 'var(--color-text)',
+    borderColor: active ? 'var(--color-accent)' : 'var(--color-divider)', cursor: 'pointer', fontFamily: 'var(--font-body)',
+  });
+  const spinStyle: React.CSSProperties = { animation: 'lb-spin 0.8s linear infinite' };
+
   return (
-    <div className="min-h-screen bg-[#0A1024] text-white font-sans selection:bg-accent/30 selection:text-white">
-      <nav className="sticky top-0 z-50 glass-panel border-x-0 border-t-0 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3 group cursor-pointer" onClick={() => navigate('/dashboard')}>
-            <div className="w-10 h-10 bg-accent/10 rounded-xl flex items-center justify-center group-hover:bg-accent/20 transition-all">
-              <ShieldCheck className="w-6 h-6 text-accent" />
-            </div>
-            <div className="flex flex-col">
-              <span className="text-xl font-black tracking-tight font-outfit leading-none">SecureLab</span>
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent/60 mt-1">Administrator</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <button onClick={handleLogout} className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-red-500/10 hover:text-red-400 transition-all">
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
+    <div style={{ minHeight: '100vh' }}>
+      <style>{`
+        @keyframes lb-spin { to { transform: rotate(360deg); } }
+        summary::-webkit-details-marker { display: none; }
+        summary { list-style: none; }
+      `}</style>
+      <nav className="nav">
+        <div className="nav-brand" style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => navigate('/dashboard')}>
+          <img src={logo} alt="Mashoke Tech" style={{ width: 30, height: 30, objectFit: 'contain' }} />
+          Mashoke Labs <span className="tag tag-neutral" style={{ marginLeft: 4 }}>Lecturer</span>
+        </div>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <button className="btn btn-icon btn-secondary" title="Profile & security" onClick={() => setIsEditingProfile(true)}><User size={16} /></button>
+          <button className="btn btn-icon btn-secondary" title="Log out" onClick={handleLogout}><LogOut size={16} /></button>
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-6 py-12">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 mb-16">
-          <div className="space-y-2">
-            <h1 className="text-5xl font-black tracking-tight font-outfit">Dashboard</h1>
-            <p className="text-white/40 text-lg max-w-2xl">Manage your academic assessments, track marking progress, and coordinate with co-markers.</p>
+      <main className="wrap" style={{ maxWidth: 1120, margin: '0 auto', padding: 'var(--space-8) var(--space-6)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 'var(--space-6)', flexWrap: 'wrap', marginBottom: 'var(--space-6)' }}>
+          <div>
+            <h1>Dashboard</h1>
+            <p className="text-muted">Manage your academic assessments, track marking progress, and coordinate with co-markers.</p>
           </div>
-          <div className="flex flex-wrap gap-4">
-            <button onClick={() => setIsEditingProfile(true)} className="glass-button bg-white/5 text-white border-white/10 px-6 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:bg-white/10 transition-all shadow-xl">
-              <User className="w-5 h-5 text-accent" /> Settings
-            </button>
-            <button onClick={() => setIsCreating(true)} className="glass-button bg-accent text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 shadow-xl">
-              <Plus className="w-6 h-6" /> Create Examination
-            </button>
-          </div>
+          <button className="btn btn-primary" onClick={() => setIsCreating(true)}>
+            <Plus size={16} /> Create examination
+          </button>
         </div>
 
         {isEditingProfile && (
-          <div className="fixed inset-0 bg-[#0A1024]/80 backdrop-blur-xl flex items-center justify-center z-[100] p-6 animate-in fade-in duration-300">
-            <div className="glass-panel max-w-xl w-full max-h-[90vh] overflow-y-auto p-10 rounded-[3rem] shadow-2xl relative">
-              <div className="flex justify-between items-center mb-10">
-                <h2 className="text-3xl font-black tracking-tight font-outfit">Security & Profile</h2>
-                <button onClick={() => setIsEditingProfile(false)} className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10"><X className="w-6 h-6 text-white/30" /></button>
+          <div className="dialog-backdrop" onClick={() => setIsEditingProfile(false)}>
+            <div className="dialog" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div className="dialog-title">Profile & security</div>
+                <button className="btn btn-icon" onClick={() => setIsEditingProfile(false)}><X size={16} /></button>
               </div>
-              <form onSubmit={handleUpdateProfile} className="space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <input type="text" required value={editedName} onChange={(e) => setEditedName(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white" placeholder="Full Name" />
-                  <input type="email" disabled value={profile?.email || ''} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 opacity-50 cursor-not-allowed" />
+              <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                <div className="field">
+                  <label>Full name</label>
+                  <input type="text" required className="input" value={editedName} onChange={(e) => setEditedName(e.target.value)} placeholder="Full Name" />
                 </div>
-                <div className="space-y-4 pt-8 border-t border-white/5">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white text-sm" placeholder="New Password" />
-                    <input type="password" value={confirmNewPassword} onChange={(e) => setConfirmNewPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white text-sm" placeholder="Confirm Password" />
+                <div className="field">
+                  <label>Email</label>
+                  <input type="email" disabled className="input" value={profile?.email || ''} />
+                </div>
+                <div className="hr" />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                  <div className="field">
+                    <label>New password</label>
+                    <input type="password" className="input" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••••" />
                   </div>
-                  <button type="button" onClick={handleUpdatePassword} disabled={isUpdatingPassword || !newPassword} className="w-full glass-button bg-white/5 text-white border-white/10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-3">
-                    {isUpdatingPassword ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5 text-accent" />} Update Password
+                  <div className="field">
+                    <label>Confirm password</label>
+                    <input type="password" className="input" value={confirmNewPassword} onChange={(e) => setConfirmNewPassword(e.target.value)} placeholder="••••••••" />
+                  </div>
+                </div>
+                <button type="button" className="btn btn-secondary btn-block" style={{ justifyContent: 'center' }} onClick={handleUpdatePassword} disabled={isUpdatingPassword || !newPassword}>
+                  {isUpdatingPassword ? <Loader2 size={16} style={spinStyle} /> : <ShieldCheck size={16} />} Update password
+                </button>
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setIsEditingProfile(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary" disabled={isSavingProfile}>
+                    {isSavingProfile ? <Loader2 size={16} style={spinStyle} /> : <Save size={16} />} Save changes
                   </button>
                 </div>
-                <button type="submit" disabled={isSavingProfile} className="w-full glass-button bg-white text-[#0A1024] py-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all flex items-center justify-center gap-3">
-                  {isSavingProfile ? <Loader2 className="w-6 h-6 animate-spin" /> : <Save className="w-6 h-6" />} Save Profile
-                </button>
               </form>
             </div>
           </div>
         )}
 
         {isCreating && (
-          <div className="fixed inset-0 bg-[#0A1024]/80 backdrop-blur-xl flex items-center justify-center z-[100] p-6 animate-in zoom-in-95 duration-300">
-            <div className="glass-panel max-w-xl w-full max-h-[90vh] overflow-y-auto p-10 rounded-[3rem] shadow-2xl relative">
-              <div className="flex justify-between items-center mb-10">
+          <div className="dialog-backdrop" onClick={() => setIsCreating(false)}>
+            <div className="dialog" style={{ maxWidth: 560, maxHeight: '88vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <h2 className="text-3xl font-black tracking-tight font-outfit text-white">New Assessment</h2>
-                  <p className="text-accent/60 text-[10px] font-black uppercase tracking-[0.2em] mt-1">Configure Examination Parameters</p>
+                  <div className="dialog-title">New examination</div>
+                  <p className="text-muted" style={{ fontSize: 12, margin: '2px 0 0' }}>Configure the assessment parameters below.</p>
                 </div>
-                <button onClick={() => setIsCreating(false)} className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition-all group">
-                  <X className="w-6 h-6 text-white/30 group-hover:text-white transition-colors" />
-                </button>
+                <button className="btn btn-icon" onClick={() => setIsCreating(false)}><X size={16} /></button>
               </div>
 
-              <form onSubmit={handleCreateExam} className="space-y-8">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Examination Title</label>
-                  <input type="text" required placeholder="e.g., Computer Science 101 Final" value={newExam.title} onChange={(e) => setNewExam({ ...newExam, title: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-5 outline-none focus:border-accent/50 focus:bg-white/[0.08] transition-all font-bold text-lg text-white" />
+              <form onSubmit={handleCreateExam} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                <div className="field">
+                  <label>Title</label>
+                  <input type="text" required className="input" placeholder="e.g., Computer Science 101 Final" value={newExam.title} onChange={(e) => setNewExam({ ...newExam, title: e.target.value })} />
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Duration (Min)</label>
-                    <div className="relative">
-                      <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                      <input type="number" required value={newExam.duration} onChange={(e) => setNewExam({ ...newExam, duration: parseInt(e.target.value) || 60 })} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white shadow-inner" />
-                    </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                  <div className="field">
+                    <label>Duration (minutes)</label>
+                    <input type="number" required className="input" value={newExam.duration} onChange={(e) => setNewExam({ ...newExam, duration: parseInt(e.target.value) || 60 })} />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Allowed Attempts</label>
-                    <div className="relative">
-                      <RotateCcw className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                      <input type="number" required value={newExam.allowed_attempts || 1} onChange={(e) => setNewExam({ ...newExam, allowed_attempts: parseInt(e.target.value) || 1 })} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white" min="1" />
-                    </div>
+                  <div className="field">
+                    <label>Allowed attempts</label>
+                    <input type="number" required min="1" className="input" value={newExam.allowed_attempts || 1} onChange={(e) => setNewExam({ ...newExam, allowed_attempts: parseInt(e.target.value) || 1 })} />
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Examination Category</label>
-                  <div className="grid grid-cols-3 gap-4">
-                    {[
-                      { id: 'mcq_only', label: 'MCQ Only', desc: 'Auto-Marked' },
-                      { id: 'structured_only', label: 'Structured', desc: 'AI Assisted' },
-                      { id: 'mixed', label: 'Mixed', desc: 'Hybrid Logic' }
-                    ].map((type) => (
-                      <button
-                        key={type.id}
-                        type="button"
-                        onClick={() => setNewExam({ ...newExam, exam_type: type.id as any })}
-                        className={`p-4 rounded-2xl border text-left transition-all ${
-                          newExam.exam_type === type.id 
-                            ? 'bg-accent/10 border-accent shadow-[0_0_20px_rgba(0,229,255,0.1)]' 
-                            : 'bg-white/5 border-white/10 hover:border-white/20'
-                        }`}
-                      >
-                        <p className={`text-xs font-black uppercase ${newExam.exam_type === type.id ? 'text-accent' : 'text-white/60'}`}>{type.label}</p>
-                        <p className="text-[10px] font-bold text-white/30 uppercase mt-1 tracking-tighter">{type.desc}</p>
-                      </button>
-                    ))}
+                <div className="field">
+                  <label>Category</label>
+                  <div className="seg">
+                    <label className="seg-opt">
+                      <input type="radio" name="examType" checked={newExam.exam_type === 'mcq_only'} onChange={() => setNewExam({ ...newExam, exam_type: 'mcq_only' })} /> MCQ only
+                    </label>
+                    <label className="seg-opt">
+                      <input type="radio" name="examType" checked={newExam.exam_type === 'structured_only'} onChange={() => setNewExam({ ...newExam, exam_type: 'structured_only' })} /> Structured
+                    </label>
+                    <label className="seg-opt">
+                      <input type="radio" name="examType" checked={newExam.exam_type === 'mixed'} onChange={() => setNewExam({ ...newExam, exam_type: 'mixed' })} /> Mixed
+                    </label>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Assign to Subject</label>
-                    <select
-                      value={newExam.subject_id || ''}
-                      onChange={(e) => setNewExam({ ...newExam, subject_id: e.target.value || null })}
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white appearance-none cursor-pointer"
-                    >
-                      <option value="" className="bg-primary">No Subject</option>
+                <div className="hr" />
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                  <div className="field">
+                    <label>Assign to subject</label>
+                    <select className="input" value={newExam.subject_id || ''} onChange={(e) => setNewExam({ ...newExam, subject_id: e.target.value || null })}>
+                      <option value="">No subject</option>
                       {subjects.map(s => (
-                        <option key={s.id} value={s.id} className="bg-primary">{s.name}</option>
+                        <option key={s.id} value={s.id}>{s.name}</option>
                       ))}
                     </select>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Assessment Mode</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setNewExam({ ...newExam, exam_mode: 'closed_book' })}
-                        className={`py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${newExam.exam_mode === 'closed_book' ? 'bg-accent/10 border-accent text-accent' : 'bg-white/5 border-white/10 text-white/40'}`}
-                      >
-                        <Lock className="w-3.5 h-3.5" />
-                        <span className="text-[10px] font-black uppercase">Closed</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNewExam({ ...newExam, exam_mode: 'open_book' })}
-                        className={`py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${newExam.exam_mode === 'open_book' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-white/5 border-white/10 text-white/40'}`}
-                      >
-                        <BookOpen className="w-3.5 h-3.5" />
-                        <span className="text-[10px] font-black uppercase">Open</span>
-                      </button>
+                  <div className="field">
+                    <label>Mode</label>
+                    <div className="seg">
+                      <label className="seg-opt">
+                        <input type="radio" name="examMode" checked={newExam.exam_mode === 'closed_book'} onChange={() => setNewExam({ ...newExam, exam_mode: 'closed_book' })} /> <Lock size={13} /> Closed
+                      </label>
+                      <label className="seg-opt">
+                        <input type="radio" name="examMode" checked={newExam.exam_mode === 'open_book'} onChange={() => setNewExam({ ...newExam, exam_mode: 'open_book' })} /> <BookOpen size={13} /> Open
+                      </label>
                     </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Total Marks</label>
-                    <input type="number" required value={newExam.total_marks} onChange={(e) => setNewExam({ ...newExam, total_marks: parseInt(e.target.value) || 100 })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white" />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-4)' }}>
+                  <div className="field">
+                    <label>Total marks</label>
+                    <input type="number" required className="input" value={newExam.total_marks} onChange={(e) => setNewExam({ ...newExam, total_marks: parseInt(e.target.value) || 100 })} />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Violation Limit</label>
-                    <input type="number" required value={newExam.allowed_violations} onChange={(e) => setNewExam({ ...newExam, allowed_violations: parseInt(e.target.value) || 3 })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white" />
+                  <div className="field">
+                    <label>Violation limit</label>
+                    <input type="number" required className="input" value={newExam.allowed_violations} onChange={(e) => setNewExam({ ...newExam, allowed_violations: parseInt(e.target.value) || 3 })} />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Enrollment Code</label>
-                    <input type="text" required value={newExam.enrollment_code} onChange={(e) => setNewExam({ ...newExam, enrollment_code: e.target.value.toUpperCase() })} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white font-mono uppercase" maxLength={6} />
+                  <div className="field">
+                    <label>Enrollment code</label>
+                    <input type="text" required maxLength={6} className="input" style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: '0.1em' }} value={newExam.enrollment_code} onChange={(e) => setNewExam({ ...newExam, enrollment_code: e.target.value.toUpperCase() })} />
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-white/5 space-y-4">
-                  <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10 transition-all hover:bg-white/[0.08]">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${newExam.has_coding ? 'bg-[#00E5FF]/20 text-[#00E5FF]' : 'bg-white/5 text-white/20'}`}>
-                        <Code2 className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-widest">Coding Assessment</p>
-                        <p className="text-[10px] text-white/30 font-bold uppercase mt-0.5">Allow students to run scripts</p>
-                      </div>
-                    </div>
-                    <button type="button" onClick={() => setNewExam({...newExam, has_coding: !newExam.has_coding})} className={`w-12 h-6 rounded-full transition-all relative ${newExam.has_coding ? 'bg-[#00E5FF]' : 'bg-white/10'}`}>
-                      <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${newExam.has_coding ? 'left-7' : 'left-1'}`} />
-                    </button>
+                <div className="hr" />
+
+                <label className="radio">
+                  <input type="checkbox" checked={newExam.has_coding} onChange={() => setNewExam({ ...newExam, has_coding: !newExam.has_coding })} />
+                  <span className="dot" style={{ borderRadius: 4 }}></span>
+                  <span><Code2 size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Enable in-browser coding environment</span>
+                </label>
+
+                {newExam.has_coding && (
+                  <div className="field">
+                    <label><Terminal size={12} style={{ verticalAlign: -2, marginRight: 4 }} /> Integrated compiler</label>
+                    <select className="input" value={newExam.coding_language || 'kotlin'} onChange={(e) => setNewExam({ ...newExam, coding_language: e.target.value })}>
+                      <option value="kotlin">Kotlin (JVM/JS)</option>
+                    </select>
                   </div>
+                )}
 
-                  {newExam.has_coding && (
-                    <div className="grid grid-cols-1 gap-4 animate-in slide-in-from-top-2 duration-300">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Integrated Compiler</label>
-                        <div className="relative">
-                          <Terminal className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#00E5FF]/40" />
-                          <select value={newExam.coding_language || 'kotlin'} onChange={(e) => setNewExam({ ...newExam, coding_language: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white appearance-none cursor-pointer">
-                            <option value="kotlin" className="bg-[#0D1117]">Kotlin (JVM/JS)</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setIsCreating(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 size={16} style={spinStyle} /> : <ShieldCheck size={16} />} Create examination
+                  </button>
                 </div>
-
-                <button type="submit" disabled={isSubmitting} className="w-full glass-button bg-accent text-[#0A1024] py-5 rounded-3xl font-black text-xs uppercase tracking-[0.2em] hover:scale-[1.02] shadow-[0_0_40px_rgba(0,229,255,0.2)] flex items-center justify-center gap-3 transition-all">
-                  {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin"/> : <ShieldCheck className="w-6 h-6"/>} Initialize Laboratory Assessment
-                </button>
               </form>
             </div>
           </div>
         )}
 
-        {isCollaborating && (
-          <div className="fixed inset-0 bg-[#0A1024]/80 backdrop-blur-xl flex items-center justify-center z-[100] p-6 animate-in fade-in zoom-in-95 duration-300">
-            <div className="glass-panel max-w-md w-full max-h-[90vh] overflow-y-auto p-10 rounded-[3rem] shadow-2xl relative">
-              <div className="absolute top-0 left-0 w-full h-1 bg-accent/20" />
-              <h2 className="text-3xl font-black tracking-tight font-outfit mb-2 text-white">Co-Marker Access</h2>
-              <p className="text-white/40 text-xs font-bold uppercase tracking-widest mb-10">Delegate Assessment Permissions</p>
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-accent/60 uppercase tracking-widest ml-1">Lecturer Email</label>
-                  <input type="email" required placeholder="lecturer@university.edu" value={newCollabEmail} onChange={(e) => setNewCollabEmail(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white" />
+        {isCollaborating && (() => {
+          const collabExam = exams.find(e => e.id === collabExamId) || null;
+          return (
+            <div className="dialog-backdrop" onClick={() => setIsCollaborating(false)}>
+              <div className="dialog" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+                <div>
+                  <div className="dialog-title">Manage enrollment & co-markers</div>
+                  {collabExam && <p className="text-muted" style={{ fontSize: 12, margin: '2px 0 0' }}>{collabExam.title}</p>}
                 </div>
-                <div className="flex gap-4">
-                  <button onClick={() => setIsCollaborating(false)} className="flex-1 glass-button bg-white/5 text-white border-white/10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-white/10">Cancel</button>
-                  <button onClick={() => collabExamId && handleAddCoMarker(collabExamId)} disabled={isAddingCollab || !newCollabEmail} className="flex-1 glass-button bg-accent text-[#0A1024] py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl">
-                    {isAddingCollab ? <Loader2 className="w-5 h-5 animate-spin mx-auto"/> : 'Grant Access'}
+
+                <h4 style={{ marginBottom: 'var(--space-2)' }}>Enrollment</h4>
+                <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-end', marginBottom: 'var(--space-2)' }}>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>Enrollment code</label>
+                    <input className="input" disabled value={collabExam?.enrollment_code || ''} style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: '0.1em' }} />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-icon"
+                    title="Copy code"
+                    onClick={() => {
+                      if (!collabExam) return;
+                      navigator.clipboard.writeText(collabExam.enrollment_code);
+                      showToast('Enrollment code copied!', 'success');
+                    }}
+                  >
+                    <Copy size={14} />
                   </button>
+                  <button type="button" className="btn btn-secondary" onClick={() => collabExamId && regenerateEnrollmentCode(collabExamId)}>
+                    <RotateCcw size={14} /> Regenerate
+                  </button>
+                </div>
+
+                <div className="field">
+                  <label>Bulk-enroll students (.xlsx roster)</label>
+                  <input
+                    className="input" type="file" accept=".xlsx,.xls,.csv"
+                    disabled={isEnrolling}
+                    onChange={(e) => collabExamId && handleEnrollStudents(collabExamId, e)}
+                  />
+                </div>
+
+                <div className="hr" />
+                <h4 style={{ marginBottom: 'var(--space-2)' }}>Co-markers</h4>
+                <div className="field">
+                  <label>Lecturer email</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input type="email" required placeholder="lecturer@university.edu" className="input" value={newCollabEmail} onChange={(e) => setNewCollabEmail(e.target.value)} />
+                    <button
+                      type="button" className="btn btn-secondary"
+                      onClick={() => collabExamId && handleAddCoMarker(collabExamId)}
+                      disabled={isAddingCollab || !newCollabEmail}
+                    >
+                      {isAddingCollab ? <Loader2 size={14} style={spinStyle} /> : 'Add'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="dialog-actions">
+                  <button className="btn btn-primary" onClick={() => setIsCollaborating(false)}>Done</button>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
-        <div className="flex flex-col gap-8 mb-12">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setSelectedSubjectId('all')}
-              className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${
-                selectedSubjectId === 'all'
-                  ? 'bg-accent text-[#0A1024] border-accent shadow-lg shadow-accent/20'
-                  : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              All Assessments
-            </button>
-            {subjects.map(subject => (
-              <div key={subject.id} className="relative group/subject">
-                <button
-                  onClick={() => setSelectedSubjectId(subject.id)}
-                  className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${
-                    selectedSubjectId === subject.id
-                      ? 'bg-white/10 text-accent border-accent/30'
-                      : 'bg-white/5 text-white/40 border-white/10 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  {subject.name}
-                </button>
-                <div className="absolute -top-2 -right-2 opacity-0 group-hover/subject:opacity-100 transition-opacity">
-                   <button onClick={(e) => { e.stopPropagation(); handleDeleteSubject(subject.id); }} className="w-6 h-6 rounded-full bg-red-500/20 text-red-500 border border-red-500/30 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all"><X className="w-3 h-3" /></button>
-                </div>
-              </div>
-            ))}
-            <button 
-              onClick={() => setIsCreatingSubject(true)}
-              className="px-4 py-3 rounded-2xl bg-[#00E5FF]/10 text-[#00E5FF] border border-[#00E5FF]/20 hover:bg-[#00E5FF]/20 transition-all flex items-center gap-2"
-              title="New Category"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="text-[10px] font-black uppercase tracking-widest">New Category</span>
-            </button>
-          </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 'var(--space-6)' }}>
+          <button style={chipStyle(selectedSubjectId === 'all')} onClick={() => setSelectedSubjectId('all')}>
+            All assessments
+          </button>
+          {subjects.map(subject => (
+            <span key={subject.id} style={{ display: 'inline-flex', alignItems: 'stretch' }}>
+              <button style={chipStyle(selectedSubjectId === subject.id)} onClick={() => setSelectedSubjectId(subject.id)}>
+                {subject.name}
+              </button>
+              <button
+                title="Delete subject"
+                onClick={(e) => { e.stopPropagation(); handleDeleteSubject(subject.id); }}
+                style={{ ...chipStyle(false), borderLeft: 'none', padding: '5px 8px', color: 'var(--color-accent-700)' }}
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+          <button
+            onClick={() => setIsCreatingSubject(true)}
+            title="New subject"
+            style={{ ...chipStyle(false), color: 'var(--color-accent)', borderColor: 'var(--color-accent)' }}
+          >
+            <Plus size={12} /> New subject
+          </button>
         </div>
 
         {isCreatingSubject && (
-          <div className="fixed inset-0 bg-[#0A1024]/80 backdrop-blur-xl flex items-center justify-center z-[110] p-6 animate-in zoom-in-95 duration-300">
-            <div className="glass-panel max-w-sm w-full p-8 rounded-[2.5rem] shadow-2xl">
-              <h3 className="text-2xl font-black mb-6 font-outfit">New Subject Category</h3>
-              <form onSubmit={handleCreateSubject} className="space-y-6">
-                <input
-                  autoFocus
-                  type="text"
-                  placeholder="e.g. Computer Science"
-                  value={newSubjectName}
-                  onChange={(e) => setNewSubjectName(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent text-white font-bold"
-                />
-                <div className="flex gap-3">
-                  <button type="button" onClick={() => setIsCreatingSubject(false)} className="flex-1 bg-white/5 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest text-white/40 hover:bg-white/10">Cancel</button>
-                  <button type="submit" disabled={!newSubjectName.trim()} className="flex-1 bg-accent text-[#0A1024] py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-accent/20">Create</button>
+          <div className="dialog-backdrop" onClick={() => setIsCreatingSubject(false)}>
+            <div className="dialog" style={{ maxWidth: 380 }} onClick={e => e.stopPropagation()}>
+              <div className="dialog-title">New subject</div>
+              <form onSubmit={handleCreateSubject} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                <div className="field">
+                  <label>Subject name</label>
+                  <input
+                    autoFocus
+                    type="text"
+                    className="input"
+                    placeholder="e.g. Computer Science"
+                    value={newSubjectName}
+                    onChange={(e) => setNewSubjectName(e.target.value)}
+                  />
+                </div>
+                <div className="dialog-actions">
+                  <button type="button" className="btn btn-secondary" onClick={() => setIsCreatingSubject(false)}>Cancel</button>
+                  <button type="submit" className="btn btn-primary" disabled={!newSubjectName.trim()}>Create</button>
                 </div>
               </form>
             </div>
@@ -989,109 +976,88 @@ const LecturerDashboard: React.FC = () => {
         )}
 
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-32 gap-4">
-            <Loader2 className="w-12 h-12 text-accent animate-spin" />
-            <p className="text-white/20 text-xs font-bold uppercase tracking-[0.3em]">Syncing Laboratory Data...</p>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-8) 0', gap: 'var(--space-3)' }}>
+            <Loader2 size={32} style={{ ...spinStyle, color: 'var(--color-accent)' }} />
+            <p className="text-muted" style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Syncing laboratory data…</p>
           </div>
         ) : exams.filter(e => selectedSubjectId === 'all' || e.subject_id === selectedSubjectId).length === 0 ? (
-          <div className="glass-panel rounded-[3rem] p-24 text-center border-dashed border-white/10">
-            <h3 className="text-2xl font-black mb-2 font-outfit">No Examinations Found</h3>
-            <p className="text-white/30 max-w-sm mx-auto mb-10">
-              {selectedSubjectId === 'all' 
+          <div className="card" style={{ padding: 'var(--space-8)', textAlign: 'center', border: '1px dashed var(--color-divider)' }}>
+            <h3>No examinations found</h3>
+            <p className="text-muted" style={{ maxWidth: 420, margin: '0 auto var(--space-4)' }}>
+              {selectedSubjectId === 'all'
                 ? 'Create your first examination to begin managing assessments for your students.'
                 : 'No examinations have been assigned to this category yet.'}
             </p>
             {selectedSubjectId === 'all' && (
-              <button onClick={() => setIsCreating(true)} className="glass-button bg-accent text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest">Start Now</button>
+              <button className="btn btn-primary" onClick={() => setIsCreating(true)}>Start now</button>
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 'var(--space-4)' }}>
             {exams.filter(e => selectedSubjectId === 'all' || e.subject_id === selectedSubjectId).map((exam) => (
-              <div key={exam.id} className="group relative glass-panel rounded-[2.5rem] border border-white/5 overflow-hidden hover:bg-white/[0.06] hover:border-accent/30 transition-all duration-300">
-                <div className="p-8">
-                  <div className="flex justify-between items-start mb-6">
-                    <div className="flex items-center gap-2">
-                      <div className={`px-4 py-1.5 rounded-full text-[10px] uppercase font-black border tracking-widest ${exam.is_active ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-white/5 text-white/30 border-white/5'}`}>
-                        {exam.is_active ? 'Published' : 'Draft Mode'}
-                      </div>
-                      <div className={`px-3 py-1.5 rounded-full text-[9px] uppercase font-black border tracking-widest ${(exam as any).exam_mode === 'open_book' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-accent/10 text-accent border-accent/20'}`}>
-                        {(exam as any).exam_mode === 'open_book' ? 'Open Book' : 'Closed Book'}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => toggleExamStatus(exam.id, exam.is_active)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center hover:bg-accent/10 transition-all">{exam.is_active ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}</button>
-                      <button onClick={() => deleteExam(exam.id)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center hover:bg-red-500/10 transition-all"><Trash2 className="w-4 h-4"/></button>
-                    </div>
+              <div key={exam.id} className="card elev-sm">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--space-2)' }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button style={chipStyle(exam.is_active)} title="Toggle published status" onClick={() => toggleExamStatus(exam.id, exam.is_active)}>
+                      {exam.is_active ? 'Published' : 'Draft'}
+                    </button>
+                    <span className={`tag ${exam.exam_mode === 'open_book' ? 'tag-accent-2' : 'tag-accent'}`}>
+                      {exam.exam_mode === 'open_book' ? 'Open book' : 'Closed book'}
+                    </span>
                   </div>
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <h3 className="text-2xl font-black text-white font-outfit break-words line-clamp-3">{exam.title}</h3>
-                    <div className="flex items-center gap-2">
-                      <div 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigator.clipboard.writeText(exam.enrollment_code);
-                          showToast('Enrollment code copied!', 'success');
-                        }}
-                        className="shrink-0 flex items-center gap-2 px-3 py-1 bg-white/5 border border-white/10 rounded-lg cursor-pointer hover:bg-accent/10 hover:border-accent/40 transition-all group/code"
-                        title="Click to copy enrollment code"
-                      >
-                        <span className="text-[10px] font-black tracking-widest text-accent">{exam.enrollment_code}</span>
-                        <Copy className="w-3 h-3 text-white/20 group-hover/code:text-accent" />
-                      </div>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          regenerateEnrollmentCode(exam.id);
-                        }}
-                        className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-white/20 hover:text-accent border border-transparent hover:border-white/10"
-                        title="Regenerate enrollment code"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 mb-8 text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                    <Clock className="w-3.5 h-3.5" /> {exam.duration_minutes}m
-                    <span className="px-2 py-0.5 bg-accent/10 text-accent rounded-lg">{exam.exam_type?.replace('_', ' ')}</span>
-                    {exam.total_submissions > 0 && (
-                      <span className="px-2 py-0.5 bg-white/5 text-white/60 rounded-lg">Avg: {exam.average_score}%</span>
-                    )}
-                  </div>
-                  <div className="space-y-4 mb-8">
-                    <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-white/40">
-                      <span>Marking Progress</span>
-                      <span>{exam.marked_submissions} / {exam.total_submissions}</span>
-                    </div>
-                    <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
-                      <div className="h-full bg-accent shadow-[0_0_10px_rgba(0,229,255,0.4)] transition-all duration-500" style={{ width: `${exam.total_submissions > 0 ? (exam.marked_submissions / exam.total_submissions) * 100 : 0}%` }} />
-                    </div>
-                  </div>
-                  <button onClick={() => navigate(`/results/${exam.id}`)} className="w-full glass-button bg-white text-[#0A1024] py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] shadow-xl">
-                    <BarChart3 className="w-5 h-5" /> Review & Grade
+                  <button className="btn btn-ghost btn-icon" title="Delete exam" style={{ color: 'var(--color-accent-700)' }} onClick={() => deleteExam(exam.id)}>
+                    <Trash2 size={15} />
                   </button>
                 </div>
-                <div className="grid grid-cols-5 bg-white/5 border-t border-white/5 opacity-0 group-hover:opacity-100 transition-all divide-x divide-white/5">
-                  <button onClick={() => handleEditQuestions(exam)} className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors text-[8px] font-bold uppercase tracking-widest"><Edit3 className="w-4 h-4 text-accent"/> Edit</button>
-                  <button onClick={() => setEditingSettings(exam)} className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors text-[8px] font-bold uppercase tracking-widest"><Settings className="w-4 h-4 text-accent"/> Settings</button>
-                  <label className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors cursor-pointer text-[8px] font-bold uppercase tracking-widest">
-                    <FileUp className="w-4 h-4 text-accent"/> 
-                    Questions
-                    <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => handleQuestionExcelUpload(exam.id, e)} disabled={isSavingQuestions}/>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 'var(--space-2)' }}>
+                  <h3 className="card-title" style={{ wordBreak: 'break-word' }}>{exam.title}</h3>
+                  <button
+                    type="button"
+                    title="Click to copy enrollment code"
+                    onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(exam.enrollment_code); showToast('Enrollment code copied!', 'success'); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: '1px solid var(--color-divider)', background: 'transparent', padding: '3px 8px', fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: 'var(--color-accent-700)', cursor: 'pointer', flex: 'none' }}
+                  >
+                    {exam.enrollment_code} <Copy size={11} />
+                  </button>
+                </div>
+
+                <div className="card-meta" style={{ flexWrap: 'wrap' }}>
+                  <Clock size={12} /> {exam.duration_minutes}m
+                  <span className="tag tag-neutral">{exam.exam_type?.replace('_', ' ')}</span>
+                  {exam.total_submissions > 0 && <span className="tag tag-neutral">Avg {exam.average_score}%</span>}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, opacity: 0.6, marginTop: 4 }}>
+                  <span>Marking progress</span>
+                  <span>{exam.marked_submissions} / {exam.total_submissions}</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--color-neutral-200)' }}>
+                  <div style={{ height: '100%', width: `${exam.total_submissions > 0 ? (exam.marked_submissions / exam.total_submissions) * 100 : 0}%`, background: 'var(--color-accent)' }} />
+                </div>
+
+                <button className="btn btn-primary btn-block" style={{ justifyContent: 'center', marginTop: 'var(--space-2)' }} onClick={() => navigate(`/results/${exam.id}`)}>
+                  <BarChart3 size={15} /> Review & grade
+                </button>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, borderTop: '1px solid var(--color-divider)', paddingTop: 'var(--space-2)', marginTop: 'var(--space-1)' }}>
+                  <button className="btn btn-ghost" style={{ padding: 4 }} title="Edit questions" onClick={() => handleEditQuestions(exam)}><Edit3 size={15} /></button>
+                  <button className="btn btn-ghost" style={{ padding: 4 }} title="Exam settings" onClick={() => setEditingSettings(exam)}><Settings size={15} /></button>
+                  <label className="btn btn-ghost" style={{ padding: 4, cursor: 'pointer' }} title="Bulk-replace questions from file">
+                    <FileUp size={15} />
+                    <input type="file" style={{ display: 'none' }} accept=".xlsx,.xls,.csv" onChange={(e) => handleQuestionExcelUpload(exam.id, e)} disabled={isSavingQuestions} />
                   </label>
-                  <div className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors text-[8px] font-bold uppercase tracking-widest relative group/move">
-                    <FolderOpen className="w-4 h-4 text-accent"/> 
-                    Organize
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover/move:block bg-[#0A1024] border border-white/10 rounded-xl shadow-2xl p-2 min-w-[160px] z-[20]">
-                      <div className="text-[8px] font-black text-white/30 mb-2 px-2 uppercase">Move to:</div>
-                      <button onClick={() => handleMoveToSubject(exam.id, null)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-[9px] text-white/60 hover:text-white">Unorganized</button>
+                  <details style={{ position: 'relative' }}>
+                    <summary className="btn btn-ghost" style={{ padding: 4, cursor: 'pointer', listStyle: 'none' }} title="Move to subject"><FolderOpen size={15} /></summary>
+                    <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, background: 'var(--color-surface)', border: '1px solid var(--color-divider)', boxShadow: 'var(--shadow-md)', padding: 'var(--space-2)', minWidth: 160, zIndex: 20 }}>
+                      <div className="text-muted" style={{ fontSize: 10, textTransform: 'uppercase', marginBottom: 4 }}>Move to:</div>
+                      <button className="btn btn-ghost btn-block" style={{ fontSize: 12 }} onClick={() => handleMoveToSubject(exam.id, null)}>Unorganized</button>
                       {subjects.map(s => (
-                        <button key={s.id} onClick={() => handleMoveToSubject(exam.id, s.id)} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-[9px] text-white/60 hover:text-white truncate">{s.name}</button>
+                        <button key={s.id} className="btn btn-ghost btn-block" style={{ fontSize: 12 }} onClick={() => handleMoveToSubject(exam.id, s.id)}>{s.name}</button>
                       ))}
                     </div>
-                  </div>
-                  <button onClick={() => { setCollabExamId(exam.id); setIsCollaborating(true); }} className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors text-[8px] font-bold uppercase tracking-widest"><UserPlus className="w-4 h-4 text-accent"/> Admin</button>
-                  <label className="p-4 flex flex-col items-center gap-2 hover:bg-white/5 transition-colors cursor-pointer text-[8px] font-bold uppercase tracking-widest"><Download className="w-4 h-4 text-accent rotate-180"/> Enroll <input type="file" className="hidden" accept=".xlsx,.xls,.csv" onChange={(e) => handleEnrollStudents(exam.id, e)} disabled={isEnrolling}/></label>
+                  </details>
+                  <button className="btn btn-ghost" style={{ padding: 4 }} title="Manage enrollment & co-markers" onClick={() => { setCollabExamId(exam.id); setIsCollaborating(true); }}><UserPlus size={15} /></button>
                 </div>
               </div>
             ))}
@@ -1099,188 +1065,173 @@ const LecturerDashboard: React.FC = () => {
         )}
 
         {editingExamQuestions && (
-          <div className="fixed inset-0 bg-[#0A1024] z-[150] overflow-y-auto animate-in slide-in-from-bottom-10 duration-500">
-            <div className="max-w-5xl mx-auto px-6 py-12 relative z-10">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 mb-16 sticky top-0 bg-[#0A1024]/80 backdrop-blur-xl py-6 border-b border-white/5 z-20">
+          <div className="dialog-backdrop" onClick={() => setEditingExamQuestions(null)}>
+            <div className="dialog" style={{ maxWidth: 640, maxHeight: '88vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <h2 className="text-4xl font-black tracking-tight font-outfit text-white">{editingExamQuestions.title}</h2>
-                  <p className="text-accent/60 text-xs font-black uppercase mt-2">Examination Blueprint Editor</p>
+                  <div className="dialog-title">Questions</div>
+                  <p className="text-muted" style={{ fontSize: 12, margin: '2px 0 0' }}>{editingExamQuestions.title}</p>
                 </div>
-                <div className="flex gap-4">
-                  <button onClick={() => setEditingExamQuestions(null)} className="px-8 py-4 text-white/40 hover:text-white font-black text-xs uppercase tracking-widest">Discard</button>
-                  <button onClick={handleSaveQuestions} disabled={isSavingQuestions} className="glass-button bg-accent text-[#0A1024] px-10 py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3">
-                    {isSavingQuestions ? <Loader2 className="w-6 h-6 animate-spin"/> : <Save className="w-6 h-6"/>} Finalize
-                  </button>
+                <button className="btn btn-icon" onClick={() => setEditingExamQuestions(null)}><X size={16} /></button>
+              </div>
+
+              <div className="field" style={{ background: 'var(--color-neutral-100)', padding: 'var(--space-3)' }}>
+                <label>Bulk-replace from Excel</label>
+                <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
+                  <input
+                    className="input" type="file" accept=".xlsx,.xls,.csv" style={{ flex: 1, background: 'var(--color-bg)' }}
+                    onChange={(e) => handleQuestionExcelUpload(editingExamQuestions.id, e)}
+                    disabled={isSavingQuestions}
+                  />
+                  <span className="text-muted" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>replaces list below</span>
                 </div>
               </div>
 
-              <div className="space-y-8 pb-32">
-                {questions.map((q, idx) => (
-                  <div key={q.id} className="group glass-panel rounded-[2rem] p-10 relative hover:bg-white/[0.04] transition-all border-white/5">
-                    <div className="absolute -left-4 top-10 w-8 h-8 bg-accent rounded-lg flex items-center justify-center font-black text-[#0A1024] text-xs">{idx + 1}</div>
-                    <button onClick={() => handleRemoveQuestion(q.id)} className="absolute top-8 right-8 w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 transition-all"><Trash2 className="w-5 h-5"/></button>
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                      <div className="lg:col-span-8 space-y-6">
-                        <textarea value={q.question_text} onChange={(e) => handleUpdateQuestion(q.id, { question_text: e.target.value })} className="w-full bg-white/5 border border-white/10 rounded-2xl p-6 outline-none focus:border-accent text-white font-bold text-lg" placeholder="Question Text" />
-                        {q.type === 'mcq' && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {(q.options || []).map((opt, oIdx) => (
-                              <input key={oIdx} type="text" value={opt} onChange={(e) => {
-                                const newOpts = [...(q.options || [])];
-                                newOpts[oIdx] = e.target.value;
-                                handleUpdateQuestion(q.id, { options: newOpts });
-                              }} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white/80 font-bold" />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="lg:col-span-4 space-y-6">
-                        <select value={q.type} onChange={(e) => handleUpdateQuestion(q.id, { type: e.target.value as any })} className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white font-bold outline-none">
-                          <option value="mcq">Multiple Choice</option>
-                          <option value="structured">Structured / Essay</option>
-                        </select>
-                        <div className="grid grid-cols-2 gap-4">
-                          <input type="number" value={q.marks} onChange={(e) => handleUpdateQuestion(q.id, { marks: parseInt(e.target.value) || 1 })} className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white font-bold" />
-                          <input type="text" value={q.correct_answer} onChange={(e) => handleUpdateQuestion(q.id, { correct_answer: e.target.value })} className="w-full bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white font-bold font-mono" />
-                        </div>
-                      </div>
-                    </div>
+              {questions.map((q, idx) => (
+                <div key={q.id} className="card" style={{ background: 'var(--color-neutral-100)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--space-2)', alignItems: 'flex-start' }}>
+                    <span className="card-kicker">Question {idx + 1}</span>
+                    <button className="btn btn-ghost btn-icon" style={{ color: 'var(--color-accent-700)' }} onClick={() => handleRemoveQuestion(q.id)}><Trash2 size={14} /></button>
                   </div>
-                ))}
-                <button onClick={handleAddQuestion} className="w-full py-12 border-2 border-dashed border-white/10 rounded-[3rem] flex items-center justify-center gap-4 text-white/20 hover:text-accent hover:border-accent/30 transition-all font-black uppercase tracking-[0.3em]">
-                  <Plus className="w-8 h-8" /> New Question
+                  <textarea
+                    className="input" value={q.question_text} placeholder="Question text"
+                    onChange={(e) => handleUpdateQuestion(q.id, { question_text: e.target.value })}
+                  />
+                  {q.type === 'mcq' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                      {(q.options || []).map((opt, oIdx) => (
+                        <input
+                          key={oIdx} type="text" className="input" value={opt}
+                          onChange={(e) => {
+                            const newOpts = [...(q.options || [])];
+                            newOpts[oIdx] = e.target.value;
+                            handleUpdateQuestion(q.id, { options: newOpts });
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 100px', gap: 'var(--space-3)' }}>
+                    <select className="input" value={q.type} onChange={(e) => handleUpdateQuestion(q.id, { type: e.target.value as any })}>
+                      <option value="mcq">Multiple Choice</option>
+                      <option value="structured">Structured / Essay</option>
+                    </select>
+                    <input type="number" className="input" value={q.marks} placeholder="Marks" onChange={(e) => handleUpdateQuestion(q.id, { marks: parseInt(e.target.value) || 1 })} />
+                    <input type="text" className="input" value={q.correct_answer} placeholder="Answer" onChange={(e) => handleUpdateQuestion(q.id, { correct_answer: e.target.value })} />
+                  </div>
+                </div>
+              ))}
+
+              <button className="btn btn-secondary btn-block" style={{ justifyContent: 'center' }} onClick={handleAddQuestion}>
+                <Plus size={14} /> Add question
+              </button>
+
+              <div className="dialog-actions">
+                <button className="btn btn-secondary" onClick={() => setEditingExamQuestions(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleSaveQuestions} disabled={isSavingQuestions}>
+                  {isSavingQuestions ? <Loader2 size={16} style={spinStyle} /> : <Save size={16} />} Save questions
                 </button>
               </div>
             </div>
           </div>
         )}
       </main>
-      {/* Edit Settings Modal */}
       {editingSettings && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-[#0A1024]/80 backdrop-blur-md">
-          <div className="glass-panel w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[2.5rem] border border-white/10 animate-in zoom-in-95 duration-300">
-            <div className="p-10">
-              <div className="flex justify-between items-center mb-10">
-                <div>
-                  <h3 className="text-3xl font-black font-outfit">Exam Settings</h3>
-                  <p className="text-white/30 text-[10px] uppercase font-bold tracking-widest mt-1">Configure Assessment Parameters</p>
-                </div>
-                <button onClick={() => setEditingSettings(null)} className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center hover:bg-red-500/10 hover:text-red-400 transition-all"><X className="w-5 h-5"/></button>
+        <div className="dialog-backdrop" onClick={() => setEditingSettings(null)}>
+          <div className="dialog" style={{ maxWidth: 560, maxHeight: '88vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div className="dialog-title">Exam settings</div>
+                <p className="text-muted" style={{ fontSize: 12, margin: '2px 0 0' }}>Configure assessment parameters.</p>
+              </div>
+              <button className="btn btn-icon" onClick={() => setEditingSettings(null)}><X size={16} /></button>
+            </div>
+
+            <form onSubmit={handleUpdateExamSettings} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <div className="field">
+                <label>Examination title</label>
+                <input type="text" required className="input" placeholder="e.g. Advanced Microbiology 101" value={editingSettings.title} onChange={(e) => setEditingSettings({ ...editingSettings, title: e.target.value })} />
               </div>
 
-              <form onSubmit={handleUpdateExamSettings} className="space-y-8">
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Examination Title</label>
-                    <input type="text" value={editingSettings.title} onChange={(e) => setEditingSettings({...editingSettings, title: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" placeholder="e.g. Advanced Microbiology 101" required />
-                  </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-4)' }}>
+                <div className="field">
+                  <label>Total marks</label>
+                  <input type="number" required className="input" value={editingSettings.total_marks} onChange={(e) => setEditingSettings({ ...editingSettings, total_marks: parseInt(e.target.value) })} />
+                </div>
+                <div className="field">
+                  <label>Duration (min)</label>
+                  <input type="number" required className="input" value={editingSettings.duration_minutes} onChange={(e) => setEditingSettings({ ...editingSettings, duration_minutes: parseInt(e.target.value) })} />
+                </div>
+                <div className="field">
+                  <label>Violation limit</label>
+                  <input type="number" required className="input" value={editingSettings.allowed_violations} onChange={(e) => setEditingSettings({ ...editingSettings, allowed_violations: parseInt(e.target.value) })} />
+                </div>
+              </div>
 
-                  <div className="grid grid-cols-3 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Total Marks</label>
-                      <input type="number" value={editingSettings.total_marks} onChange={(e) => setEditingSettings({...editingSettings, total_marks: parseInt(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" required />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Duration (Min)</label>
-                      <input type="number" value={editingSettings.duration_minutes} onChange={(e) => setEditingSettings({...editingSettings, duration_minutes: parseInt(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" required />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Violation Limit</label>
-                      <input type="number" value={editingSettings.allowed_violations} onChange={(e) => setEditingSettings({...editingSettings, allowed_violations: parseInt(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" required />
-                    </div>
-                  </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                <div className="field">
+                  <label>Allowed attempts</label>
+                  <input type="number" required min="1" className="input" value={editingSettings.allowed_attempts} onChange={(e) => setEditingSettings({ ...editingSettings, allowed_attempts: parseInt(e.target.value) })} />
+                </div>
+                <div className="field">
+                  <label>Exam type</label>
+                  <select className="input" value={editingSettings.exam_type} onChange={(e) => setEditingSettings({ ...editingSettings, exam_type: e.target.value as any })}>
+                    <option value="mcq_only">MCQ only</option>
+                    <option value="structured_only">Structured only</option>
+                    <option value="mixed">Mixed</option>
+                  </select>
+                </div>
+              </div>
 
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Allowed Attempts</label>
-                      <input type="number" value={editingSettings.allowed_attempts} onChange={(e) => setEditingSettings({...editingSettings, allowed_attempts: parseInt(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium" min="1" required />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Exam Type</label>
-                      <select value={editingSettings.exam_type} onChange={(e) => setEditingSettings({...editingSettings, exam_type: e.target.value as any})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-accent/40 text-white font-medium appearance-none">
-                        <option value="mcq_only" className="bg-[#0D1117]">MCQ Only</option>
-                        <option value="structured_only" className="bg-[#0D1117]">Structured Only</option>
-                        <option value="mixed" className="bg-[#0D1117]">Mixed</option>
-                      </select>
-                    </div>
-                  </div>
+              <div className="hr" />
 
-                  <div className="grid grid-cols-2 gap-6 pt-4 border-t border-white/5">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Assigned Category</label>
-                      <select
-                        value={(editingSettings as any).subject_id || ''}
-                        onChange={(e) => setEditingSettings({ ...editingSettings, subject_id: e.target.value || null } as any)}
-                        className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white appearance-none cursor-pointer"
-                      >
-                        <option value="" className="bg-primary">No Category</option>
-                        {subjects.map(s => (
-                          <option key={s.id} value={s.id} className="bg-primary">{s.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Environment Mode</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setEditingSettings({ ...editingSettings, exam_mode: 'closed_book' } as any)}
-                          className={`py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${(editingSettings as any).exam_mode === 'closed_book' ? 'bg-accent/10 border-accent text-accent' : 'bg-white/5 border-white/10 text-white/40'}`}
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                          <span className="text-[10px] font-black uppercase">Closed</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditingSettings({ ...editingSettings, exam_mode: 'open_book' } as any)}
-                          className={`py-3 rounded-xl border flex items-center justify-center gap-2 transition-all ${(editingSettings as any).exam_mode === 'open_book' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-white/5 border-white/10 text-white/40'}`}
-                        >
-                          <BookOpen className="w-3.5 h-3.5" />
-                          <span className="text-[10px] font-black uppercase">Open</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-6 border-t border-white/5 space-y-4">
-                    <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10 transition-all hover:bg-white/[0.08]">
-                      <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${(editingSettings as any).has_coding ? 'bg-[#00E5FF]/20 text-[#00E5FF]' : 'bg-white/5 text-white/20'}`}>
-                          <Code2 className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-black uppercase tracking-widest">Coding Assessment</p>
-                          <p className="text-[10px] text-white/30 font-bold uppercase mt-0.5">Allow students to run scripts</p>
-                        </div>
-                      </div>
-                      <button type="button" onClick={() => setEditingSettings({...editingSettings, has_coding: !(editingSettings as any).has_coding} as any)} className={`w-12 h-6 rounded-full transition-all relative ${(editingSettings as any).has_coding ? 'bg-[#00E5FF]' : 'bg-white/10'}`}>
-                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${(editingSettings as any).has_coding ? 'left-7' : 'left-1'}`} />
-                      </button>
-                    </div>
-
-                    {(editingSettings as any).has_coding && (
-                      <div className="grid grid-cols-1 gap-4 animate-in slide-in-from-top-2 duration-300">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-1">Integrated Compiler</label>
-                          <div className="relative">
-                            <Terminal className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#00E5FF]/40" />
-                            <select value={(editingSettings as any).coding_language || 'kotlin'} onChange={(e) => setEditingSettings({ ...editingSettings, coding_language: e.target.value } as any)} className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-6 py-4 outline-none focus:border-accent/50 transition-all font-bold text-white appearance-none cursor-pointer">
-                              <option value="kotlin" className="bg-[#0D1117]">Kotlin (JVM/JS)</option>
-                            </select>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                <div className="field">
+                  <label>Assigned subject</label>
+                  <select className="input" value={editingSettings.subject_id || ''} onChange={(e) => setEditingSettings({ ...editingSettings, subject_id: e.target.value || null } as any)}>
+                    <option value="">No subject</option>
+                    {subjects.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Mode</label>
+                  <div className="seg">
+                    <label className="seg-opt">
+                      <input type="radio" name="editExamMode" checked={editingSettings.exam_mode === 'closed_book'} onChange={() => setEditingSettings({ ...editingSettings, exam_mode: 'closed_book' } as any)} /> <Lock size={13} /> Closed
+                    </label>
+                    <label className="seg-opt">
+                      <input type="radio" name="editExamMode" checked={editingSettings.exam_mode === 'open_book'} onChange={() => setEditingSettings({ ...editingSettings, exam_mode: 'open_book' } as any)} /> <BookOpen size={13} /> Open
+                    </label>
                   </div>
                 </div>
+              </div>
 
-                <div className="pt-6 border-t border-white/5">
-                  <button type="submit" disabled={isSubmitting} className="w-full glass-button bg-accent text-[#0A1024] py-5 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 hover:scale-[1.02] shadow-xl disabled:opacity-50">
-                    {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />} Save Settings
-                  </button>
+              <div className="hr" />
+
+              <label className="radio">
+                <input type="checkbox" checked={!!editingSettings.has_coding} onChange={() => setEditingSettings({ ...editingSettings, has_coding: !editingSettings.has_coding } as any)} />
+                <span className="dot" style={{ borderRadius: 4 }}></span>
+                <span><Code2 size={13} style={{ verticalAlign: -2, marginRight: 4 }} /> Enable in-browser coding environment</span>
+              </label>
+
+              {editingSettings.has_coding && (
+                <div className="field">
+                  <label><Terminal size={12} style={{ verticalAlign: -2, marginRight: 4 }} /> Integrated compiler</label>
+                  <select className="input" value={editingSettings.coding_language || 'kotlin'} onChange={(e) => setEditingSettings({ ...editingSettings, coding_language: e.target.value } as any)}>
+                    <option value="kotlin">Kotlin (JVM/JS)</option>
+                  </select>
                 </div>
-              </form>
-            </div>
+              )}
+
+              <div className="dialog-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setEditingSettings(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                  {isSubmitting ? <Loader2 size={16} style={spinStyle} /> : <Save size={16} />} Save settings
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

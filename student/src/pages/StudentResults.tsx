@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@shared/lib/supabase';
+import { supabase } from '@shared/lib/apiClient';
 import {
   Trophy, CheckCircle2, AlertTriangle, XCircle,
-  ArrowLeft, GraduationCap, ShieldCheck,
+  ArrowLeft, ShieldCheck,
   MessageSquare, Target, ChevronDown, ChevronUp,
   Award, BookOpen, FileText, Loader2
 } from 'lucide-react';
@@ -207,13 +207,11 @@ const StudentResults: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-primary flex flex-col items-center justify-center p-6 text-center">
-        <div className="relative mb-8">
-          <div className="w-24 h-24 border-4 border-accent/20 border-t-accent rounded-full animate-spin" />
-          <GraduationCap className="w-10 h-10 text-accent absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-        </div>
-        <h2 className="text-2xl font-bold mb-2 text-white">Marking in Progress</h2>
-        <p className="text-white/40 max-w-xs text-sm">Your answers are being reviewed. This usually takes less than a minute.</p>
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-6)', textAlign: 'center', background: 'var(--color-bg)' }}>
+        <Loader2 size={40} className="spin" style={{ color: 'var(--color-accent)', marginBottom: 'var(--space-4)' }} />
+        <h2 style={{ marginBottom: 'var(--space-2)' }}>Marking in Progress</h2>
+        <p className="text-muted" style={{ maxWidth: 320, fontSize: 14 }}>Your answers are being reviewed. This usually takes less than a minute.</p>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`}</style>
       </div>
     );
   }
@@ -221,257 +219,232 @@ const StudentResults: React.FC = () => {
   const percentage = submission.total_marks > 0 ? (submission.score / submission.total_marks) * 100 : 0;
   const isPassed = percentage >= 50;
 
-  // Compute color thresholds
-  const gradeColor = percentage >= 75 ? 'text-green-400' : percentage >= 50 ? 'text-[#00E5FF]' : percentage >= 35 ? 'text-orange-400' : 'text-red-400';
-  const gradeBg = percentage >= 75 ? 'from-green-500/20 to-green-500/5 border-green-500/20' : percentage >= 50 ? 'from-[#00E5FF]/20 to-[#00E5FF]/5 border-[#00E5FF]/20' : percentage >= 35 ? 'from-orange-500/20 to-orange-500/5 border-orange-500/20' : 'from-red-500/20 to-red-500/5 border-red-500/20';
+  // Compute grade presentation (thresholds unchanged, only the styling tokens differ)
   const gradeLabel = percentage >= 75 ? 'Distinction' : percentage >= 60 ? 'Merit' : percentage >= 50 ? 'Pass' : percentage >= 35 ? 'Below Pass' : 'Fail';
   const GradeIcon = percentage >= 50 ? Trophy : percentage >= 35 ? AlertTriangle : XCircle;
+  const gradeTagClass = percentage >= 75 ? 'tag-accent' : percentage >= 50 ? 'tag-accent-2' : percentage >= 35 ? 'tag-outline' : 'tag-neutral';
+  const gradeColor = isPassed ? 'var(--color-accent)' : 'var(--color-text)';
 
   const totalAwarded = questions.reduce((acc, q) => acc + (submission.marking_details?.[q.id]?.awarded_marks ?? 0), 0);
 
+  const markedBy = submission.marked_by_name || submission.marked_by_email;
+
   return (
-    <div className="min-h-screen bg-[#0A1024] text-white font-outfit pb-20">
-      {/* Dynamic Background */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-accent/10 rounded-full blur-[120px] animate-pulse" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: '2s' }} />
-      </div>
+    <div style={{ minHeight: '100vh', background: 'var(--color-bg)', paddingBottom: 'var(--space-8)' }}>
       {/* ── Top Nav ── */}
-      <header className="sticky top-0 z-[100] bg-[#0A1024]/60 backdrop-blur-3xl border-b border-white/5 py-4">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
+      <nav className="nav" style={{ position: 'sticky', top: 0, zIndex: 100, background: 'var(--color-bg)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', width: '100%', maxWidth: 880, margin: '0 auto' }}>
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex items-center gap-2 text-white/40 hover:text-white transition-colors group text-sm"
+            className="btn btn-ghost"
+            style={{ paddingInline: 0 }}
           >
-            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+            <ArrowLeft size={16} />
             Dashboard
           </button>
-          <div className="flex items-center gap-2 text-white/30 text-xs font-mono uppercase tracking-widest">
-            <BookOpen className="w-3.5 h-3.5" />
+          <div className="text-muted" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            <BookOpen size={14} />
             {submission.exams?.title}
           </div>
-          <div className="w-20" />
         </div>
-      </header>
+      </nav>
 
-      <main className="max-w-3xl mx-auto px-6 py-10">
+      <main style={{ maxWidth: 880, margin: '0 auto', padding: '0 var(--space-6)', paddingTop: 'var(--space-8)' }}>
 
-        {/* ── Hero Score Card ── */}
-        <div className={`relative overflow-hidden rounded-[2.5rem] border bg-gradient-to-br ${gradeBg} p-12 mb-12 text-center shadow-2xl`}>
-          {/* Decorative glow */}
-          <div className="absolute inset-0 pointer-events-none">
-            <div className={`absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full blur-3xl opacity-20 ${
-              isPassed ? 'bg-green-400' : 'bg-orange-400'
-            }`} />
-          </div>
+        {/* ── Header ── */}
+        <span className="tag tag-neutral">{submission.exams?.title || 'Examination'}</span>
+        <h1 style={{ marginTop: 'var(--space-2)' }}>Results</h1>
+        <p className="text-muted">
+          Submitted {submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}
+          {markedBy && <> &middot; Marked by {markedBy}</>}
+        </p>
 
-          <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-5 ${
-            percentage >= 75 ? 'bg-green-500/20 text-green-400' :
-            percentage >= 50 ? 'bg-[#00E5FF]/15 text-[#00E5FF]' :
-            'bg-orange-500/20 text-orange-400'
-          }`}>
-            <GradeIcon className="w-8 h-8" />
-          </div>
-
-          <p className="text-white/40 text-xs uppercase tracking-[0.25em] font-bold mb-2">Your Result</p>
-          <div className={`text-7xl font-black tabular-nums mb-1 ${gradeColor}`}>
-            {percentage.toFixed(0)}%
-          </div>
-          <p className="text-white/30 text-sm mb-4">{submission.score} / {submission.total_marks} marks</p>
-
-          <span className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold border ${
-            percentage >= 75 ? 'bg-green-500/15 border-green-500/30 text-green-400' :
-            percentage >= 50 ? 'bg-[#00E5FF]/10 border-[#00E5FF]/30 text-[#00E5FF]' :
-            percentage >= 35 ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' :
-            'bg-red-500/10 border-red-500/30 text-red-400'
-          }`}>
-            {isPassed ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-            {gradeLabel}
-          </span>
-
-          {/* Marking status */}
-          <div className="mt-6 pt-5 border-t border-white/10 flex items-center justify-center gap-4 text-sm">
-            <span className="text-green-400 font-bold flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4" /> Lecturer Marked
+        {/* ── Stat Cards ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-4)', margin: 'var(--space-6) 0' }}>
+          <div className="card elev-sm">
+            <span className="card-kicker">Score</span>
+            <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 40 }}>
+              {percentage.toFixed(0)}<span style={{ color: 'var(--color-accent)', fontSize: 22 }}>%</span>
             </span>
-            {(submission.marked_by_name || submission.marked_by_email) && (
-              <span className="text-white/30 text-xs italic">
-                by {submission.marked_by_name || submission.marked_by_email}
-              </span>
-            )}
+            <span className="card-meta">{submission.score} / {submission.total_marks} marks</span>
           </div>
+          <div className="card elev-sm">
+            <span className="card-kicker">Grade</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 24, color: gradeColor }}>
+              <GradeIcon size={22} />
+              {gradeLabel}
+            </span>
+            <span className="card-meta">{isPassed ? 'Passing grade' : 'Below passing grade'}</span>
+          </div>
+          <div className="card elev-sm">
+            <span className="card-kicker">Marking</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18 }}>
+              <ShieldCheck size={18} style={{ color: 'var(--color-accent)' }} />
+              Lecturer Marked
+            </span>
+            <span className="card-meta">{markedBy || 'Reviewed'}</span>
+          </div>
+        </div>
 
-          {/* Focus Report Button */}
-          <div className="mt-8 flex justify-center">
-            <button
-              onClick={handleGenerateFocusReport}
-              disabled={isGeneratingReport}
-              className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-sm transition-all shadow-lg ${
-                isPassed 
-                ? 'bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20' 
-                : 'bg-[#00E5FF]/10 text-[#00E5FF] border border-[#00E5FF]/20 hover:bg-[#00E5FF]/20'
-              } disabled:opacity-50`}
-            >
-              {isGeneratingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-              Pull Focus Report (PDF)
-            </button>
-          </div>
+        <span className={`tag ${gradeTagClass}`} style={{ marginBottom: 'var(--space-4)', display: 'inline-flex', gap: 6 }}>
+          {isPassed ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+          {gradeLabel}
+        </span>
+
+        {/* ── Focus Report Button ── */}
+        <div style={{ margin: 'var(--space-4) 0 var(--space-6)' }}>
+          <button
+            onClick={handleGenerateFocusReport}
+            disabled={isGeneratingReport}
+            className="btn btn-primary"
+          >
+            {isGeneratingReport ? <Loader2 size={16} className="spin" /> : <FileText size={16} />}
+            Pull Focus Report (PDF)
+          </button>
         </div>
 
         {/* ── Per-Question Breakdown ── */}
         {questions.length > 0 && (
           <section>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xs text-white/40 uppercase tracking-[0.2em] font-bold flex items-center gap-2">
-                <Award className="w-3.5 h-3.5" />
-                Question Breakdown
-              </h2>
-              <span className="text-xs text-white/20 font-mono">{questions.length} questions</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Award size={16} />
+                Question breakdown
+              </h3>
+              <span className="text-muted" style={{ fontSize: 12 }}>{questions.length} questions</span>
             </div>
 
-            <div className="space-y-3">
-              {questions.map((q) => {
-                const detail = submission.marking_details?.[q.id];
-                const studentAnswer = submission.answers?.[q.id] || '';
-                const awarded = detail?.awarded_marks ?? 0;
-                const pct = q.marks > 0 ? (awarded / q.marks) * 100 : 0;
-                const isExpanded = expandedQuestions.has(q.id);
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Question</th>
+                  <th>Type</th>
+                  <th>Marks</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {questions.map((q, idx) => {
+                  const detail = submission.marking_details?.[q.id];
+                  const studentAnswer = submission.answers?.[q.id] || '';
+                  const awarded = detail?.awarded_marks ?? 0;
+                  const isExpanded = expandedQuestions.has(q.id);
+                  const typeLabel = q.type === 'mcq' ? 'MCQ' : 'Structured';
+                  const typeTagClass = q.type === 'mcq' ? 'tag-neutral' : 'tag-accent';
 
-                const barColor = pct === 100 ? 'bg-green-400' : pct >= 50 ? 'bg-[#00E5FF]' : pct > 0 ? 'bg-orange-400' : 'bg-white/10';
-                const dotColor = pct === 100 ? 'bg-green-400' : pct >= 50 ? 'bg-[#00E5FF]' : pct > 0 ? 'bg-orange-400' : 'bg-white/20';
-                const scoreColor = pct === 100 ? 'text-green-400' : pct >= 50 ? 'text-[#00E5FF]' : pct > 0 ? 'text-orange-400' : 'text-white/30';
+                  return (
+                    <React.Fragment key={q.id}>
+                      <tr onClick={() => toggleExpand(q.id)} style={{ cursor: 'pointer' }}>
+                        <td className="text-muted">{idx + 1}</td>
+                        <td style={{ maxWidth: 360 }}>{q.question_text}</td>
+                        <td><span className={`tag ${typeTagClass}`}>{typeLabel}</span></td>
+                        <td style={{ fontWeight: 800 }}>{awarded} / {q.marks}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={5} style={{ background: 'var(--color-surface)' }}>
+                            <div style={{ padding: 'var(--space-3) var(--space-2)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                              {/* Your answer */}
+                              <div>
+                                <p className="card-kicker" style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                                  <Target size={11} /> Your Answer
+                                </p>
+                                {studentAnswer ? (
+                                  <pre style={{ margin: 0, padding: 'var(--space-3)', background: 'var(--color-bg)', border: '1px solid var(--color-divider)', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, overflow: 'auto', maxHeight: 192 }}>
+                                    {studentAnswer}
+                                  </pre>
+                                ) : (
+                                  <p className="text-muted" style={{ fontStyle: 'italic', fontSize: 12, padding: 'var(--space-3)', background: 'var(--color-bg)', border: '1px solid var(--color-divider)', margin: 0 }}>No answer provided.</p>
+                                )}
+                              </div>
 
-                return (
-                  <div
-                    key={q.id}
-                    className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden"
-                  >
-                    {/* Header row */}
-                    <button
-                      onClick={() => toggleExpand(q.id)}
-                      className="w-full flex items-start gap-4 px-5 py-4 hover:bg-white/[0.02] transition-colors text-left"
-                    >
-                      <span className={`w-2 h-2 rounded-full shrink-0 mt-2 ${dotColor}`} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white/80 whitespace-pre-wrap break-words">{q.question_text}</p>
-                        {/* Score bar */}
-                        <div className="flex items-center gap-2 mt-1.5">
-                          <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full ${barColor} transition-all duration-500`} style={{ width: `${pct}%` }} />
-                          </div>
-                          <span className="text-[10px] text-white/25 uppercase tracking-wider font-bold">{pct.toFixed(0)}%</span>
-                        </div>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <span className={`text-base font-black tabular-nums ${scoreColor}`}>{awarded}</span>
-                        <span className="text-white/20 text-sm font-normal"> / {q.marks}</span>
-                      </div>
-                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-white/20 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-white/20 shrink-0" />}
-                    </button>
+                              {/* MCQ Options Display */}
+                              {q.type === 'mcq' && q.options && q.options.length > 0 && (
+                                <div>
+                                  <p className="card-kicker" style={{ marginBottom: 6 }}>Options</p>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    {q.options.map((opt: string, optIdx: number) => {
+                                      const letter = String.fromCharCode(65 + optIdx);
+                                      const isStudentChoice = (studentAnswer || '').trim().toUpperCase() === letter;
+                                      const isCorrectChoice = (q.correct_answer || '').trim().toUpperCase() === letter;
 
-                    {/* Expanded body */}
-                    {isExpanded && (
-                      <div className="border-t border-white/[0.05] px-5 py-4 space-y-4">
-                        {/* Your answer */}
-                        <div>
-                          <p className="text-[10px] text-white/30 uppercase tracking-[0.15em] font-bold mb-1.5 flex items-center gap-1">
-                            <Target className="w-2.5 h-2.5" /> Your Answer
-                          </p>
-                          {studentAnswer ? (
-                            <pre className="p-3 bg-white/[0.03] border border-white/[0.05] rounded-xl font-mono text-xs text-white/60 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-48">
-                              {studentAnswer}
-                            </pre>
-                          ) : (
-                            <p className="text-xs text-white/20 italic p-3 bg-white/[0.02] rounded-xl border border-white/[0.04]">No answer provided.</p>
-                          )}
-                        </div>
+                                      let optTagClass = 'tag-neutral';
+                                      if (isCorrectChoice) optTagClass = 'tag-accent';
+                                      else if (isStudentChoice) optTagClass = 'tag-outline';
 
-                        {/* MCQ Options Display */}
-                        {q.type === 'mcq' && q.options && q.options.length > 0 && (
-                          <div>
-                            <p className="text-[10px] text-white/30 uppercase tracking-[0.15em] font-bold mb-2 flex items-center gap-1">
-                              Options
-                            </p>
-                            <div className="space-y-2">
-                              {q.options.map((opt: string, optIdx: number) => {
-                                const letter = String.fromCharCode(65 + optIdx);
-                                const isStudentChoice = (studentAnswer || '').trim().toUpperCase() === letter;
-                                const isCorrectChoice = (q.correct_answer || '').trim().toUpperCase() === letter;
-                                
-                                let optClasses = 'bg-white/[0.03] border-white/[0.05] text-white/40';
-                                if (isStudentChoice && isCorrectChoice) {
-                                  optClasses = 'bg-green-500/10 border-green-500/30 text-green-400';
-                                } else if (isStudentChoice && !isCorrectChoice) {
-                                  optClasses = 'bg-red-500/10 border-red-500/30 text-red-400';
-                                } else if (isCorrectChoice) {
-                                  optClasses = 'bg-green-500/[0.06] border-green-500/15 text-green-400/60';
-                                }
-
-                                return (
-                                  <div key={optIdx} className={`flex items-center gap-3 p-2.5 rounded-lg border text-xs ${optClasses}`}>
-                                    <span className="w-6 h-6 flex items-center justify-center bg-black/20 rounded-md font-bold text-[10px] shrink-0">{letter}</span>
-                                    <span className="break-words">{opt}</span>
-                                    {isStudentChoice && isCorrectChoice && <CheckCircle2 className="w-3.5 h-3.5 text-green-400 ml-auto shrink-0" />}
-                                    {isStudentChoice && !isCorrectChoice && <XCircle className="w-3.5 h-3.5 text-red-400 ml-auto shrink-0" />}
-                                    {!isStudentChoice && isCorrectChoice && <CheckCircle2 className="w-3.5 h-3.5 text-green-400/50 ml-auto shrink-0" />}
+                                      return (
+                                        <div key={optIdx} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, padding: '6px 0', borderBottom: '1px solid var(--color-divider)' }}>
+                                          <span className={`tag ${optTagClass}`} style={{ minWidth: 20, justifyContent: 'center', fontWeight: 800 }}>{letter}</span>
+                                          <span style={{ wordBreak: 'break-word', flex: 1 }}>{opt}</span>
+                                          {isStudentChoice && isCorrectChoice && <CheckCircle2 size={14} style={{ color: 'var(--color-accent)', flexShrink: 0 }} />}
+                                          {isStudentChoice && !isCorrectChoice && <XCircle size={14} className="text-muted" style={{ flexShrink: 0 }} />}
+                                          {!isStudentChoice && isCorrectChoice && <CheckCircle2 size={14} style={{ color: 'var(--color-accent)', opacity: 0.5, flexShrink: 0 }} />}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
-                                );
-                              })}
+                                </div>
+                              )}
+
+                              {/* Correct answer (for structured questions only) */}
+                              {q.type !== 'mcq' && q.correct_answer && (
+                                <div>
+                                  <p className="card-kicker" style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+                                    <CheckCircle2 size={11} /> Model Answer
+                                  </p>
+                                  <pre style={{ margin: 0, padding: 'var(--space-3)', background: 'var(--color-bg)', border: '1px solid var(--color-accent)', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.5, overflow: 'auto', maxHeight: 192 }}>
+                                    {q.correct_answer}
+                                  </pre>
+                                </div>
+                              )}
+
+                              {/* Feedback */}
+                              {detail?.feedback && (
+                                <div style={{ padding: 'var(--space-3)', borderLeft: '2px solid var(--color-accent)', background: 'var(--color-bg)', fontSize: 13, lineHeight: 1.5 }}>
+                                  <p className="card-kicker" style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                                    <MessageSquare size={11} /> Feedback
+                                  </p>
+                                  {detail.feedback}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        )}
-
-                        {/* Correct answer (for structured questions only) */}
-                        {q.type !== 'mcq' && q.correct_answer && (
-                          <div>
-                            <p className="text-[10px] text-green-400/50 uppercase tracking-[0.15em] font-bold mb-1.5 flex items-center gap-1">
-                              <CheckCircle2 className="w-2.5 h-2.5" /> Model Answer
-                            </p>
-                            <pre className="p-3 bg-green-500/[0.04] border border-green-500/15 rounded-xl font-mono text-xs text-green-300/70 whitespace-pre-wrap break-words leading-relaxed overflow-auto max-h-48">
-                              {q.correct_answer}
-                            </pre>
-                          </div>
-                        )}
-
-                        {/* Feedback */}
-                        {detail?.feedback && (
-                          <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                            pct === 100 ? 'bg-green-500/5 border-green-500/15 text-green-300/80'
-                            : pct >= 50 ? 'bg-[#00E5FF]/5 border-[#00E5FF]/15 text-[#00E5FF]/70'
-                            : 'bg-orange-500/5 border-orange-500/15 text-orange-300/70'
-                          }`}>
-                            <p className="flex items-center gap-1 text-[9px] uppercase tracking-widest font-bold opacity-60 mb-1">
-                              <MessageSquare className="w-2.5 h-2.5" /> Feedback
-                            </p>
-                            {detail.feedback}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
 
             {/* Summary footer */}
-            <div className="mt-6 flex items-center justify-between px-4 py-3 bg-white/[0.02] border border-white/[0.05] rounded-xl">
-              <span className="text-xs text-white/30 font-bold uppercase tracking-widest">Total Awarded</span>
-              <span className={`text-lg font-black tabular-nums ${gradeColor}`}>
-                {totalAwarded} <span className="text-white/20 font-normal text-sm">/ {submission.total_marks}</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-3) var(--space-2)', borderTop: '2px solid var(--color-divider)' }}>
+              <span className="text-muted" style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Total Awarded</span>
+              <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18, color: gradeColor }}>
+                {totalAwarded} <span className="text-muted" style={{ fontWeight: 400, fontSize: 13 }}>/ {submission.total_marks}</span>
               </span>
             </div>
           </section>
         )}
 
+        <div className="hr" />
+
         {/* ── Return Button ── */}
         <button
           onClick={() => navigate('/dashboard')}
-          className="mt-8 w-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-all group"
+          className="btn btn-secondary btn-block"
+          style={{ justifyContent: 'center', padding: 'var(--space-3)' }}
         >
           Return to Dashboard
-          <ArrowLeft className="w-4 h-4 rotate-180 group-hover:translate-x-0.5 transition-transform" />
+          <ArrowLeft size={16} style={{ transform: 'rotate(180deg)' }} />
         </button>
       </main>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`}</style>
     </div>
   );
 };

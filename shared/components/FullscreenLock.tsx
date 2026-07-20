@@ -10,18 +10,21 @@ const FullscreenLock: React.FC<FullscreenLockProps> = ({ isFullscreen, onEnterFu
   if (isFullscreen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-primary flex flex-col items-center justify-center p-6 text-center">
-      <ShieldAlert className="w-20 h-20 text-accent mb-6 animate-pulse" />
-      <h1 className="text-3xl font-bold mb-4">Fullscreen Required</h1>
-      <p className="text-panel/80 max-w-md mb-8">
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 100, background: 'var(--color-bg)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: 'var(--space-6)', textAlign: 'center',
+      }}
+    >
+      <ShieldAlert size={72} color="var(--color-accent)" style={{ marginBottom: 'var(--space-6)' }} />
+      <h1 style={{ marginBottom: 'var(--space-4)' }}>Fullscreen required</h1>
+      <p className="text-muted" style={{ maxWidth: 420, marginBottom: 'var(--space-8)' }}>
         This exam platform requires fullscreen mode to ensure integrity.
         Leaving fullscreen mode is considered a violation.
       </p>
-      <button
-        onClick={onEnterFullscreen}
-        className="px-8 py-3 bg-accent text-primary font-bold rounded-lg hover:bg-accent/90 transition-colors"
-      >
-        Re-enter Fullscreen
+      <button onClick={onEnterFullscreen} className="btn btn-primary" style={{ padding: 'var(--space-3) var(--space-6)' }}>
+        Re-enter fullscreen
       </button>
     </div>
   );

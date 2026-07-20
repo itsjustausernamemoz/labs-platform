@@ -11,6 +11,7 @@ export default defineConfig({
       'react': path.resolve(__dirname, 'node_modules/react'),
       'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
       'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime'),
+      'react-router-dom': path.resolve(__dirname, 'node_modules/react-router-dom'),
     },
   },
   envDir: path.resolve(__dirname, '..'),

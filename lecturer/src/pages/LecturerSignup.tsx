@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@shared/lib/supabase';
-import { Lock, Mail, ArrowRight, UserPlus } from 'lucide-react';
+import { supabase } from '@shared/lib/apiClient';
+import { ArrowRight, Loader2 } from 'lucide-react';
+import logo from '@shared/assets/mashoke-logo.png';
 
 const LecturerSignup: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -22,7 +23,7 @@ const LecturerSignup: React.FC = () => {
       });
 
       if (signupError) throw signupError;
-      
+
       if (data.user) {
         navigate('/dashboard');
       }
@@ -34,78 +35,79 @@ const LecturerSignup: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-primary">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-accent/10 rounded-2xl mb-6">
-            <UserPlus className="w-10 h-10 text-accent" />
-          </div>
-          <h1 className="text-4xl font-bold mb-2 text-white">Lecturer Registration</h1>
-          <p className="text-panel/60">Create your account to manage exams</p>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', padding: 'var(--space-6)' }}>
+      <div style={{ width: '100%', maxWidth: 420 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 'var(--space-6)' }}>
+          <img src={logo} alt="Mashoke Tech" style={{ width: 34, height: 34, objectFit: 'contain' }} />
+          <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16 }}>Mashoke Labs</span>
         </div>
+        <h2 style={{ textAlign: 'center', marginBottom: 'var(--space-1)' }}>Request lecturer access</h2>
+        <p className="text-muted" style={{ textAlign: 'center', fontSize: 14, marginBottom: 'var(--space-6)' }}>
+          Create your staff account to start building exams.
+        </p>
 
-        <form onSubmit={handleSignup} className="space-y-4">
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-panel/80">Email Address</label>
-            <div className="relative">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-panel/40" />
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-accent transition-all text-white"
-                placeholder="lecturer@university.edu"
-              />
-            </div>
+        <form onSubmit={handleSignup}>
+          <div className="field" style={{ marginBottom: 'var(--space-4)' }}>
+            <label>Email address</label>
+            <input
+              className="input" type="email" placeholder="lecturer@university.edu"
+              value={email} onChange={(e) => setEmail(e.target.value)} required
+            />
+          </div>
+          <div className="field" style={{ marginBottom: 'var(--space-6)' }}>
+            <label>Password</label>
+            <input
+              className="input" type="password" placeholder="••••••••"
+              value={password} onChange={(e) => setPassword(e.target.value)} required
+            />
           </div>
 
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-panel/80">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-panel/40" />
-              <input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3 outline-none focus:border-accent transition-all text-white"
-                placeholder="••••••••"
-              />
+          {error && (
+            <div className="card" style={{ borderLeft: '3px solid #b3261e', marginBottom: 'var(--space-4)' }}>
+              <p style={{ margin: 0, fontSize: 13 }}>{error}</p>
             </div>
-          </div>
-
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+          )}
 
           <button
             type="submit"
+            className="btn btn-primary btn-block"
+            style={{ justifyContent: 'center', padding: 'var(--space-3)' }}
             disabled={isLoading}
-            className="w-full bg-accent text-primary font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-accent/90 transition-all disabled:opacity-50 mt-6"
           >
-            {isLoading ? 'Creating account...' : (
+            {isLoading ? (
+              <Loader2 size={18} className="spin" />
+            ) : (
               <>
-                Create Account
-                <ArrowRight className="w-5 h-5" />
+                Create account <ArrowRight size={16} />
               </>
             )}
           </button>
         </form>
 
-        <div className="mt-8 text-center space-y-4">
+        <div className="hr" />
+        <p style={{ textAlign: 'center', fontSize: 13, marginBottom: 'var(--space-2)' }}>
+          Already have an account?{' '}
           <button
             onClick={() => navigate('/')}
-            className="text-panel/40 hover:text-accent text-sm transition-colors block w-full"
+            style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--color-accent)', cursor: 'pointer' }}
           >
-            Already have an account? Sign in
+            Sign in
           </button>
+        </p>
+        <p style={{ textAlign: 'center', fontSize: 13 }}>
           <button
             onClick={() => navigate('/')}
-            className="text-panel/40 hover:text-accent text-sm transition-colors block w-full"
+            style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--color-accent)', cursor: 'pointer' }}
           >
             Back to Student Login
           </button>
-        </div>
+        </p>
       </div>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spin { animation: spin 1s linear infinite; }
+      `}</style>
     </div>
   );
 };

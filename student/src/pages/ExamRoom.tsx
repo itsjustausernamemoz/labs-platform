@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@shared/lib/supabase';
+import { supabase } from '@shared/lib/apiClient';
 import { useTabGuard } from '@shared/hooks/useTabGuard';
 import type { ViolationType } from '@shared/hooks/useTabGuard';
 import TabGuard from '@shared/components/TabGuard';
 import QuestionRenderer from '@shared/components/QuestionRenderer';
 import type { Question } from '@shared/components/QuestionRenderer';
 import Timer from '@shared/components/Timer';
-import { Send, Shield, AlertTriangle, Loader2, MousePointer, ClipboardCopy, Save, FileDown, Clock } from 'lucide-react';
+import { Send, Shield, AlertTriangle, Loader2, MousePointer, ClipboardCopy, Save, FileDown, Clock, Check } from 'lucide-react';
 import { useNotification } from '@shared/components/NotificationProvider';
 import { jsPDF } from 'jspdf';
 
@@ -190,6 +190,34 @@ const ExamRoom: React.FC = () => {
     };
   }, [isSubmitting, showToast]);
 
+  // Polls for a lecturer-triggered violation reset (replaces the old Supabase
+  // Realtime `violation-resets` DELETE subscription — this API has no
+  // realtime push, so a few seconds of lag replaces instant notification).
+  // If the lecturer hits "Resume" on the dashboard, it deletes all violations
+  // for this student in the DB; the count drop below is what we detect here.
+  const violationCountRef = useRef(0);
+  useEffect(() => {
+    violationCountRef.current = violationCount;
+  }, [violationCount]);
+
+  useEffect(() => {
+    if (!student || !examId) return;
+    const interval = setInterval(async () => {
+      const { count } = await supabase
+        .from('violations')
+        .select('*', { count: 'exact', head: true })
+        .eq('exam_id', examId)
+        .eq('student_id', student.id);
+      if (count !== null && count !== undefined && count < violationCountRef.current) {
+        setViolationCount(0);
+        pendingViolations.current = [];
+        setShowViolationWarning(false);
+        showToast('Your session has been formally resumed by the lecturer. Security violations reset.', 'info');
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [student, examId, showToast]);
+
   const seededShuffle = (array: any[], seed: string) => {
     if (!seed) return array;
     // Simple hash for the seed string
@@ -318,34 +346,9 @@ const ExamRoom: React.FC = () => {
         .eq('exam_id', examId)
         .eq('student_id', studentData.id);
       
-      if (dbViolationCount !== null) {
+      if (dbViolationCount != null) {
         setViolationCount(dbViolationCount);
       }
-
-      // 7. Subscribe to Realtime Violation Resets
-      // If the lecturer hits "Resume" on the dashboard, it deletes all violations
-      // for this student in the DB. We must listen for this to sync our local state,
-      // otherwise the student will get kicked out again on their very next tab switch.
-      const violationChannel = supabase
-        .channel('violation-resets')
-        .on(
-          'postgres_changes',
-          { event: 'DELETE', schema: 'public', table: 'violations', filter: `student_id=eq.${studentData.id}` },
-          () => {
-            console.log('ExamRoom: Violations cleared by lecturer. Resetting local count to 0.');
-            setViolationCount(0);
-            pendingViolations.current = [];
-            setShowViolationWarning(false);
-            showToast('Your session has been formally resumed by the lecturer. Security violations reset.', 'info');
-          }
-        )
-        .subscribe();
-
-      // Clean up the subscription when unmounting
-      return () => {
-        supabase.removeChannel(violationChannel);
-      };
-
     } catch (err) {
       console.error('Error fetching exam data:', err);
       showToast('Error loading exam. Please try again.', 'error');
@@ -678,7 +681,7 @@ const ExamRoom: React.FC = () => {
   const handleConfirmSubmit = () => {
     showConfirm({
       title: 'Submit Examination',
-      message: 'Are you sure you want to submit your exam now?',
+      message: `You've answered ${Object.keys(answers).length} of ${questions.length} question${questions.length !== 1 ? 's' : ''}. Once submitted, you cannot make further changes.`,
       confirmText: 'Submit',
       onConfirm: handleSubmit
     });
@@ -701,84 +704,136 @@ const ExamRoom: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-primary flex items-center justify-center">
-        <Loader2 className="w-10 h-10 text-accent animate-spin" />
+      <div style={{ minHeight: '100vh', background: 'var(--color-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader2 size={40} className="spin" style={{ color: 'var(--color-accent)' }} />
       </div>
     );
   }
 
+  const isLastQuestion = questions.length > 0 && currentQuestionIndex === questions.length - 1;
+
   return (
-    <div className="min-h-screen bg-primary text-white font-mono selection:bg-accent selection:text-primary">
+    <div style={{ minHeight: '100vh', background: 'var(--color-bg)', color: 'var(--color-text)' }}>
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-40 bg-primary/80 backdrop-blur-md border-b border-white/10 p-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${isOpenBook ? 'bg-green-500/10' : 'bg-accent/10'}`}>
-              <Shield className={`w-5 h-5 ${isOpenBook ? 'text-green-500' : 'text-accent'}`} />
+      <header
+        style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 40,
+          background: 'var(--color-bg)', borderBottom: '2px solid var(--color-divider)',
+          padding: 'var(--space-3) var(--space-4)',
+        }}
+      >
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <div style={{
+              width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none',
+              background: isOpenBook ? 'var(--color-accent-2-100)' : 'var(--color-accent-100)',
+            }}>
+              <Shield size={18} style={{ color: isOpenBook ? 'var(--color-accent-2-700)' : 'var(--color-accent-700)' }} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="font-bold text-lg leading-none">{exam.title}</h1>
-                {isOpenBook && (
-                  <span className="px-2 py-0.5 rounded-md bg-green-500 text-primary text-[8px] font-black uppercase tracking-widest">Open Book</span>
-                )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <h1 style={{ fontSize: 17, margin: 0, lineHeight: 1.2 }}>{exam.title}</h1>
+                {isOpenBook && <span className="tag tag-accent-2">Open Book</span>}
               </div>
-              <p className="text-xs text-panel/40 mt-1 uppercase tracking-tighter">Secure Session ID: {examId?.slice(0, 8)}</p>
+              <p className="text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '2px 0 0' }}>
+                Secure Session ID: {examId?.slice(0, 8)}
+              </p>
             </div>
           </div>
-          {examEndTime && <Timer endTime={examEndTime} onExpiry={handleAutoSubmitWithJitter} />}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+            {examEndTime && <Timer endTime={examEndTime} onExpiry={handleAutoSubmitWithJitter} />}
+            {isLastQuestion && (
+              <button
+                onClick={handleConfirmSubmit}
+                disabled={isSubmitting}
+                className="btn btn-primary"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={16} className="spin" />
+                    Submitting…
+                  </>
+                ) : (
+                  <>
+                    Submit exam
+                    <Send size={15} />
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Jitter Overlay */}
       {isJittering && (
-        <div className="fixed inset-0 z-[60] bg-primary/95 flex flex-col items-center justify-center p-6 text-center animate-fade-in backdrop-blur-xl">
-          <Loader2 className="w-16 h-16 text-accent animate-spin mb-8" />
-          <h2 className="text-3xl font-bold mb-3 tracking-tight">{jitterMessage}</h2>
-          <p className="text-panel/60 max-w-md text-lg leading-relaxed">
-            The exam session is being securely finalized. We are currently syncing your latest progress to the database. 
-            <span className="block mt-4 text-accent font-bold animate-pulse">Please do not close this window.</span>
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 60,
+            background: 'color-mix(in srgb, var(--color-neutral-900) 94%, transparent)',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            padding: 'var(--space-6)', textAlign: 'center',
+          }}
+        >
+          <Loader2 size={56} className="spin" style={{ color: 'var(--color-accent-2-300)', marginBottom: 'var(--space-6)' }} />
+          <h2 style={{ color: 'var(--color-bg)', marginBottom: 'var(--space-3)' }}>{jitterMessage}</h2>
+          <p style={{ color: 'color-mix(in srgb, var(--color-bg) 65%, transparent)', maxWidth: 480, fontSize: 16, lineHeight: 1.6, margin: 0 }}>
+            The exam session is being securely finalized. We are currently syncing your latest progress to the database.
+            <span style={{ display: 'block', marginTop: 'var(--space-4)', color: 'var(--color-accent-2-300)', fontWeight: 800 }}>
+              Please do not close this window.
+            </span>
           </p>
         </div>
       )}
 
       {/* Main Content */}
-      <main ref={examContainerRef} className="max-w-7xl mx-auto pt-24 pb-32 px-6">
+      <main ref={examContainerRef} style={{ maxWidth: 1200, margin: '0 auto', padding: '96px var(--space-6) 140px' }}>
         {!isOpenBook && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-12 flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-            <p className="text-sm text-red-200">
-              <span className="font-bold text-red-500 uppercase">Warning:</span> All activity is being monitored.
+          <div
+            style={{
+              border: '1px solid var(--color-accent-700)', background: 'var(--color-accent-100)',
+              padding: 'var(--space-4)', marginBottom: 'var(--space-6)',
+              display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)',
+            }}
+          >
+            <AlertTriangle size={18} style={{ color: 'var(--color-accent-700)', flex: 'none', marginTop: 2 }} />
+            <p style={{ fontSize: 13, margin: 0, color: 'var(--color-accent-800)' }}>
+              <strong style={{ textTransform: 'uppercase' }}>Warning:</strong> All activity is being monitored.
               Switching tabs, minimizing the browser, or <strong>moving the cursor outside this window</strong> will result in a violation.
-              {maxViolations} violations will trigger automatic submission with a score of 0.
+              {' '}{maxViolations} violations will trigger automatic submission with a score of 0.
             </p>
           </div>
         )}
 
         {isOpenBook && (
-          <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 mb-12 flex items-start gap-3">
-            <div className="p-1 bg-green-500 rounded-md">
-              <Shield className="w-3.5 h-3.5 text-primary" />
-            </div>
-            <p className="text-sm text-green-200">
-              <span className="font-bold text-green-500 uppercase">Open Book Mode:</span> Security restrictions and violation monitoring are disabled for this assessment. 
+          <div
+            style={{
+              border: '1px solid var(--color-accent-2-700)', background: 'var(--color-accent-2-100)',
+              padding: 'var(--space-4)', marginBottom: 'var(--space-6)',
+              display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)',
+            }}
+          >
+            <Shield size={16} style={{ color: 'var(--color-accent-2-700)', flex: 'none', marginTop: 2 }} />
+            <p style={{ fontSize: 13, margin: 0, color: 'var(--color-accent-2-800)' }}>
+              <strong style={{ textTransform: 'uppercase' }}>Open Book Mode:</strong> Security restrictions and violation monitoring are disabled for this assessment.
               You may freely switch tabs and access external resources.
             </p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+        <div className="examroom-grid">
           {/* Main Question Column */}
-          <div className="lg:col-span-8 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div>
             {questions.length > 0 && (
               <>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-accent font-black text-xs uppercase tracking-[0.2em]">Question</span>
-                    <span className="text-2xl font-black">{currentQuestionIndex + 1}</span>
-                    <span className="text-panel/40 font-black text-2xl">/ {questions.length}</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)' }}>
+                    <span className="card-kicker" style={{ fontSize: 12 }}>Question</span>
+                    <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 22 }}>{currentQuestionIndex + 1}</span>
+                    <span className="text-muted" style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 22 }}>/ {questions.length}</span>
                   </div>
-                  <div className="md:hidden text-xs font-bold text-panel/40 uppercase tracking-widest">
+                  <div className="text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                     Attempt {attemptNumber}
                   </div>
                 </div>
@@ -794,45 +849,31 @@ const ExamRoom: React.FC = () => {
                 />
 
                 {/* Pagination Controls */}
-                <div className="flex justify-between items-center bg-white/5 border border-white/10 p-4 rounded-2xl gap-4">
+                <div
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    border: '1px solid var(--color-divider)', padding: 'var(--space-3) var(--space-4)',
+                    marginTop: 'var(--space-4)', gap: 'var(--space-4)',
+                  }}
+                >
                   <button
                     onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
                     disabled={currentQuestionIndex === 0}
-                    className="flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm bg-white/5 border border-white/10 hover:bg-white/10 transition-all disabled:opacity-20 disabled:cursor-not-allowed group"
+                    className="btn btn-secondary"
                   >
-                    <div className="w-5 h-5 flex items-center justify-center rounded bg-white/5 group-hover:bg-white/10">←</div>
-                    Previous
+                    ← Previous
                   </button>
 
-                  <div className="flex-1 flex overflow-x-auto gap-2 px-4 no-scrollbar items-center justify-center">
-                    <span className="lg:hidden text-[10px] font-black text-panel/30 uppercase tracking-[0.2em]">Navigator Below</span>
-                  </div>
-
-                  {currentQuestionIndex < questions.length - 1 ? (
-                    <button
-                      onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
-                      className="flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-accent text-primary hover:bg-accent/90 transition-all group"
-                    >
-                      Next Question
-                      <div className="w-5 h-5 flex items-center justify-center rounded bg-primary/10 group-hover:bg-primary/20">→</div>
-                    </button>
+                  {isLastQuestion ? (
+                    <span className="text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Last question — use Submit exam above when ready
+                    </span>
                   ) : (
                     <button
-                      onClick={handleConfirmSubmit}
-                      disabled={isSubmitting}
-                      className="flex items-center gap-2 px-8 py-3 rounded-xl font-bold text-sm bg-green-500 text-primary hover:bg-green-600 transition-all shadow-[0_0_20px_rgba(34,197,94,0.3)] disabled:opacity-50"
+                      onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
+                      className="btn btn-primary"
                     >
-                      {isSubmitting ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Submitting...
-                        </>
-                      ) : (
-                        <>
-                          Final Submission
-                          <Send className="w-4 h-4" />
-                        </>
-                      )}
+                      Next Question →
                     </button>
                   )}
                 </div>
@@ -841,67 +882,67 @@ const ExamRoom: React.FC = () => {
           </div>
 
           {/* Sidebar Jumper Column */}
-          <aside className="lg:col-span-4 space-y-6 lg:sticky lg:top-32">
-            <div className="glass-panel p-6 rounded-[2rem] border border-white/10 space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-black text-accent uppercase tracking-[0.2em]">Navigation</h3>
-                <div className="px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] font-black text-panel/40 uppercase">
-                  {Object.keys(answers).length} / {questions.length} Solved
-                </div>
+          <aside style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div className="card" style={{ gap: 'var(--space-4)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h3 className="card-kicker" style={{ margin: 0 }}>Navigation</h3>
+                <span className="tag tag-neutral">{Object.keys(answers).length} / {questions.length} Solved</span>
               </div>
 
-              <div className="grid grid-cols-5 gap-2">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
                 {questions.map((q, idx) => {
                   const isCurrent = idx === currentQuestionIndex;
                   const isAnswered = !!answers[q.id];
-                  
+
                   return (
                     <button
                       key={q.id}
                       onClick={() => setCurrentQuestionIndex(idx)}
-                      className={`h-10 rounded-xl text-xs font-black transition-all border flex items-center justify-center ${
-                        isCurrent 
-                        ? 'bg-accent text-primary border-accent shadow-[0_0_15px_rgba(0,229,255,0.3)] scale-110 z-10' 
-                        : isAnswered 
-                          ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-green-500/20' 
-                          : 'bg-white/5 text-panel/40 border-white/5 hover:bg-white/10 hover:text-white'
-                      }`}
+                      style={{
+                        position: 'relative', height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, fontWeight: 800, cursor: 'pointer', fontFamily: 'var(--font-heading)',
+                        border: isCurrent ? '1px solid var(--color-accent)' : '1px solid var(--color-divider)',
+                        background: isCurrent ? 'var(--color-accent)' : isAnswered ? 'var(--color-accent-100)' : 'transparent',
+                        color: isCurrent ? 'var(--color-bg)' : isAnswered ? 'var(--color-accent-800)' : 'var(--color-text)',
+                      }}
                     >
-                      {idx + 1}
+                      {isAnswered && !isCurrent ? <Check size={14} /> : idx + 1}
                     </button>
                   );
                 })}
               </div>
 
-              <div className="pt-4 border-t border-white/5 flex flex-col gap-4">
+              <div style={{ borderTop: '1px solid var(--color-divider)', paddingTop: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
                 {questions.some(q => (q as any).can_copy) && (
                   <button
                     onClick={handleCopyAllowedQuestions}
-                    className="w-full flex items-center justify-center gap-2 bg-white/5 text-panel/60 border border-white/5 px-4 py-3 rounded-xl font-bold text-xs hover:bg-white/10 hover:text-white transition-all underline decoration-accent/30 underline-offset-4"
+                    className="btn btn-secondary btn-block"
+                    style={{ justifyContent: 'center' }}
                   >
-                    <ClipboardCopy className="w-3.5 h-3.5 text-accent" />
+                    <ClipboardCopy size={14} />
                     Copy Lab Prompts
                   </button>
                 )}
-                
+
                 <button
                   onClick={handleDownloadBackupScript}
                   disabled={isSubmitting || questions.length === 0}
-                  className="w-full flex items-center justify-center gap-2 text-panel/30 hover:text-panel/60 transition-colors py-2 text-[10px] font-black uppercase tracking-widest"
+                  className="btn btn-ghost btn-block"
+                  style={{ justifyContent: 'center', fontSize: 11 }}
                 >
-                  <FileDown className="w-3 h-3" />
+                  <FileDown size={13} />
                   Save Local Backup
                 </button>
               </div>
             </div>
 
             {/* Hint Panel */}
-            <div className="bg-[#00E5FF]/5 border border-[#00E5FF]/10 rounded-2xl p-5">
-              <div className="flex items-center gap-3 mb-2 text-[#00E5FF]">
-                <Clock className="w-4 h-4" />
-                <span className="text-xs font-black uppercase tracking-widest">Pro-Tip</span>
+            <div className="card" style={{ background: 'var(--color-accent-2-100)', gap: 'var(--space-2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--color-accent-2-800)' }}>
+                <Clock size={15} />
+                <span className="card-kicker" style={{ color: 'var(--color-accent-2-800)' }}>Pro-Tip</span>
               </div>
-              <p className="text-[11px] text-[#00E5FF]/60 font-medium leading-relaxed">
+              <p style={{ fontSize: 12, margin: 0, color: 'var(--color-accent-2-800)', opacity: 0.85, lineHeight: 1.5 }}>
                 You can jump between questions at any time. Your progress is automatically synced as you navigate.
               </p>
             </div>
@@ -910,20 +951,28 @@ const ExamRoom: React.FC = () => {
       </main>
 
       {/* Floating Save Button - "At all costs" visibility */}
-      <div className="fixed bottom-24 right-8 z-50 flex flex-col items-end gap-2 animate-bounce-subtle">
+      <div style={{ position: 'fixed', bottom: 88, right: 'var(--space-6)', zIndex: 50, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 'var(--space-2)' }}>
         <button
           onClick={() => saveDraft(answers)}
           disabled={saveStatus === 'saving' || isSubmitting}
-          className={`flex items-center gap-2 pr-6 pl-5 py-3 rounded-full font-bold uppercase tracking-widest transition-all shadow-2xl ${
-            saveStatus === 'saving' ? 'bg-white/5 text-panel/40 cursor-wait h-[48px]' :
-            saveStatus === 'saved' ? 'bg-green-500 text-primary h-[48px]' :
-            saveStatus === 'error' ? 'bg-red-500 text-white animate-pulse h-[48px]' :
-            'bg-accent text-primary hover:scale-105 hover:shadow-accent/40 h-[48px]'
-          }`}
+          className="btn"
+          style={{
+            boxShadow: 'var(--shadow-lg)',
+            border: '1px solid var(--color-divider)',
+            padding: 'var(--space-2) var(--space-4)',
+            background:
+              saveStatus === 'saved' ? 'var(--color-accent-2-500)' :
+              saveStatus === 'error' ? '#b3261e' :
+              saveStatus === 'saving' ? 'var(--color-surface)' :
+              'var(--color-accent)',
+            color:
+              saveStatus === 'saving' ? 'var(--color-text)' : 'var(--color-bg)',
+            cursor: saveStatus === 'saving' ? 'wait' : 'pointer',
+          }}
         >
           {saveStatus === 'saving' ? (
             <>
-              <Loader2 className="w-5 h-5 animate-spin" />
+              <Loader2 size={18} className="spin" />
               Syncing...
             </>
           ) : saveStatus === 'saved' ? (
@@ -932,35 +981,47 @@ const ExamRoom: React.FC = () => {
             </>
           ) : saveStatus === 'error' ? (
             <>
-              <AlertTriangle className="w-5 h-5" />
+              <AlertTriangle size={18} />
               Retry Save
             </>
           ) : (
             <>
-              <Save className="w-5 h-5" />
+              <Save size={18} />
               Save Progress
             </>
           )}
         </button>
         {saveStatus === 'error' && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] px-3 py-1 rounded-lg backdrop-blur-md">
+          <div style={{ fontSize: 10, padding: '4px 8px', border: '1px solid #b3261e', color: '#b3261e', background: 'var(--color-bg)' }}>
             Click to retry manual save
           </div>
         )}
       </div>
 
       {/* Footer Info */}
-      <footer className="fixed bottom-0 left-0 right-0 p-4 bg-primary/80 backdrop-blur-md border-t border-white/5">
-        <div className="max-w-4xl mx-auto flex justify-between items-center text-[10px] text-panel/30 uppercase tracking-[0.2em]">
+      <footer
+        style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 30,
+          background: 'var(--color-bg)', borderTop: '2px solid var(--color-divider)',
+          padding: 'var(--space-3) var(--space-4)',
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 1200, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em',
+            color: 'color-mix(in srgb, var(--color-text) 50%, transparent)', flexWrap: 'wrap', gap: 'var(--space-2)',
+          }}
+        >
           <span>Student: {student?.student_number}</span>
-          <div className="flex items-center gap-6">
-            <span className="flex items-center gap-1">
-              <MousePointer className={`w-3 h-3 ${isOpenBook ? 'text-green-500' : 'text-accent'}`} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-6)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <MousePointer size={12} style={{ color: isOpenBook ? 'var(--color-accent-2-600)' : 'var(--color-accent-600)' }} />
               {isOpenBook ? 'Open Book Environment' : 'Monitoring Active'}
             </span>
           </div>
           {!isOpenBook && <span>Violations: {violationCount}/{maxViolations}</span>}
-          {isOpenBook && <span className="text-green-500/40">Verified Mode</span>}
+          {isOpenBook && <span style={{ color: 'var(--color-accent-2-600)' }}>Verified Mode</span>}
         </div>
       </footer>
 
@@ -971,6 +1032,15 @@ const ExamRoom: React.FC = () => {
         violationType={lastViolationType}
         onDismiss={handleAcknowledgeViolation}
       />
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spin { animation: spin 1s linear infinite; }
+        .examroom-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-8); align-items: start; }
+        @media (max-width: 960px) {
+          .examroom-grid { grid-template-columns: 1fr; }
+        }
+      `}</style>
     </div>
   );
 };

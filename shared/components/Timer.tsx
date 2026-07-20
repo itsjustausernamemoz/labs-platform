@@ -36,10 +36,16 @@ const Timer: React.FC<TimerProps> = ({ endTime, onExpiry }) => {
   const isLow = timeLeft < 300; // 5 minutes
 
   return (
-    <div className={`flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-xl font-bold border ${
-      isLow ? 'bg-red-500/20 border-red-500 text-red-500 animate-pulse' : 'bg-accent/20 border-accent text-accent'
-    }`}>
-      <Clock className="w-5 h-5" />
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px',
+        fontFamily: 'monospace', fontSize: 20, fontWeight: 800, border: '1px solid',
+        borderColor: isLow ? 'var(--color-accent-700)' : 'var(--color-accent)',
+        color: isLow ? 'var(--color-accent-700)' : 'var(--color-accent)',
+        background: isLow ? 'var(--color-accent-100)' : 'var(--color-accent-100)',
+      }}
+    >
+      <Clock size={18} />
       <span>{formatTime(timeLeft)}</span>
     </div>
   );

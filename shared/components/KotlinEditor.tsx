@@ -38,10 +38,10 @@ const KotlinEditor: React.FC<KotlinEditorProps> = ({
       if (window.KotlinPlayground && codeRef.current) {
         try {
           const result = (window.KotlinPlayground as any)(codeRef.current);
-          
+
           // Handle both Promise and direct Array return types
           const instances = result instanceof Promise ? await result : result;
-          
+
           if (instances && instances.length > 0) {
             playgroundInstance.current = instances[0];
           } else if ((window.KotlinPlayground as any).instances) {
@@ -85,12 +85,12 @@ const KotlinEditor: React.FC<KotlinEditorProps> = ({
   const handleCopy = () => {
     try {
       let code = '';
-      
+
       // Strategy 1: Use the official instance API (Ref-captured)
       if (playgroundInstance.current && typeof playgroundInstance.current.getContent === 'function') {
         code = playgroundInstance.current.getContent();
-      } 
-      
+      }
+
       // Strategy 2: Global Instances fallback
       if (!code && (window as any).KotlinPlayground?.instances?.length > 0) {
         const instances = (window as any).KotlinPlayground.instances;
@@ -123,12 +123,12 @@ const KotlinEditor: React.FC<KotlinEditorProps> = ({
 
       if (code && code.trim()) {
         (window as any).__KOTLIN_CODE_BUFFER = code;
-        
+
         // Use the modern clipboard API
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(code).catch(() => {});
         }
-        
+
         setShowCopied(true);
         setTimeout(() => setShowCopied(false), 2000);
       } else {
@@ -140,7 +140,16 @@ const KotlinEditor: React.FC<KotlinEditorProps> = ({
   };
 
   return (
-    <div className={`kotlin-editor-container rounded-3xl overflow-hidden border border-white/10 flex flex-col ${className}`} style={{ minHeight: height }}>
+    <div
+      className={`kotlin-editor-container ${className}`}
+      style={{
+        border: '1px solid var(--color-divider)',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: height,
+      }}
+    >
       <style>{`
         .playground-footer, .playground-footer * { display: none !important; visibility: hidden !important; height: 0 !important; padding: 0 !important; }
         .kotlin-playground { border-radius: 0 !important; }
@@ -148,33 +157,56 @@ const KotlinEditor: React.FC<KotlinEditorProps> = ({
         .CodeMirror-linenumber { color: rgba(255,255,255,0.2) !important; padding-right: 12px !important; text-align: right !important; min-width: 28px !important; }
         .CodeMirror-lines { padding-left: 8px !important; }
       `}</style>
-      <div className="bg-white/[0.03] border-b border-white/10 px-5 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Terminal className="w-4 h-4 text-accent/50" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Kotlin IDE</span>
+      <style>{`
+        @keyframes kotlin-editor-spin { to { transform: rotate(360deg); } }
+      `}</style>
+
+      <div
+        style={{
+          background: 'var(--color-neutral-900)',
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
+          padding: '10px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Terminal size={16} style={{ color: 'var(--color-accent-2)', opacity: 0.7 }} />
+          <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', color: 'rgba(255,255,255,0.5)' }}>
+            Kotlin IDE
+          </span>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <button 
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
             type="button"
             onClick={handleCopy}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all active:scale-95 ${
-              showCopied 
-                ? 'bg-green-500/20 border-green-500/40 text-green-400 font-black' 
-                : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white font-bold'
-            }`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '6px 12px',
+              border: `1px solid ${showCopied ? '#3fae4a' : 'rgba(255,255,255,0.15)'}`,
+              background: showCopied ? 'rgba(63,174,74,0.15)' : 'rgba(255,255,255,0.05)',
+              color: showCopied ? '#5fcf6a' : 'rgba(255,255,255,0.6)',
+              fontWeight: showCopied ? 800 : 700,
+              cursor: 'pointer',
+            }}
           >
-            {showCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            <span className="text-[10px] uppercase tracking-widest">{showCopied ? 'Copied!' : 'Copy Snippet'}</span>
+            {showCopied ? <Check size={14} /> : <Copy size={14} />}
+            <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+              {showCopied ? 'Copied!' : 'Copy Snippet'}
+            </span>
           </button>
         </div>
       </div>
 
-      <div className="relative flex-1 bg-[#1E1E1E]">
+      <div style={{ position: 'relative', flex: 1, background: '#1E1E1E' }}>
         {error ? (
-          <div className="p-8 text-center bg-red-500/10 text-red-400">
-            <p className="font-bold mb-2">Editor Error</p>
-            <p className="text-xs opacity-80">{error}</p>
+          <div style={{ padding: 32, textAlign: 'center', background: 'rgba(220,38,38,0.08)', color: '#f87171' }}>
+            <p style={{ fontWeight: 800, marginBottom: 8 }}>Editor Error</p>
+            <p style={{ fontSize: 12, opacity: 0.8 }}>{error}</p>
           </div>
         ) : (
           <pre
@@ -195,12 +227,34 @@ const KotlinEditor: React.FC<KotlinEditorProps> = ({
             {initialCode}
           </pre>
         )}
-        
+
         {!isLoaded && !error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#1E1E1E] text-white/40 z-10">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-              <p className="text-[10px] uppercase font-black tracking-widest">Initializing Compiler...</p>
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: '#1E1E1E',
+              color: 'rgba(255,255,255,0.4)',
+              zIndex: 10,
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  border: '2px solid var(--color-accent)',
+                  borderTopColor: 'transparent',
+                  animation: 'kotlin-editor-spin 1s linear infinite',
+                }}
+              />
+              <p style={{ fontSize: 10, textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.15em' }}>
+                Initializing Compiler...
+              </p>
             </div>
           </div>
         )}

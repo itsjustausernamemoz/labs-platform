@@ -5,9 +5,20 @@
   "targets": {
     "labsystem-7a0e1": {
       "hosting": {
-        "student": ["slab-student"],
-        "lecturer": ["lab-lecturer"]
+        "student": [
+          "slab-student"
+        ],
+        "lecturer": [
+          "lab-lecturer"
+        ],
+        "admin": [
+          "mashoke-admin"
+        ],
+        "institution-admin": [
+          "mashoke-institution-admin"
+        ]
       }
     }
-  }
+  },
+  "etags": {}
 }

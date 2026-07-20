@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@shared/lib/supabase';
+import { supabase } from '@shared/lib/apiClient';
 import { useNotification } from '@shared/components/NotificationProvider';
 import { ArrowLeft, Loader2, Sparkles } from 'lucide-react';
 
@@ -117,46 +117,26 @@ const SubmissionReview: React.FC = () => {
     if (!submission) return;
     setMarkingSingleId(q.id);
     try {
-      const studentAnswer = submission.answers[q.id] || '(No answer provided)';
-      const modelAnswer = q.correct_answer || '';
-      
-      const prompt = `
-        You are a highly accurate academic examiner. Mark the following structured answer.
-        
-        QUESTION: "${q.question_text}"
-        MAX MARKS POSSIBLE: ${q.marks}
-        EXPECTED MODEL ANSWER: "${modelAnswer}"
-        
-        STUDENT ANSWER: "${studentAnswer}"
-        
-        INSTRUCTIONS:
-        1. Compare the student answer against the model answer.
-        2. Assign "marks" (integer or 0.5 increment, not exceeding ${q.marks}).
-        3. Provide concise, constructive "feedback" speaking DIRECTLY to the student in the second person (e.g., "You correctly identified..." or "Your answer missed...").
-        
-        RESPONSE FORMAT:
-        You must return ONLY a JSON object:
-        { "marks": number, "feedback": "string" }
-      `;
-
-      const { data, error } = await supabase.functions.invoke('grade-submission', { 
-        body: { prompt } 
+      // The API grades this one question server-side and returns the same
+      // { marking_details: { [questionId]: {awarded_marks, feedback} } }
+      // shape handleAutomark uses — no client-built prompt or response
+      // parsing needed anymore.
+      const { data, error } = await supabase.functions.invoke('grade-submission', {
+        body: { submissionId: submission.id, questionId: q.id },
       });
-      
+
       if (error) throw error;
-      
-      const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const jsonMatch = content.match(/\{.*\}/s);
-      const res = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
-      
-      setOverrides({ ...overrides, [q.id]: res.marks }); 
-      setFeedbackOverrides({ ...feedbackOverrides, [q.id]: res.feedback });
+      const result = data?.marking_details?.[q.id];
+      if (!result) throw new Error('AI grading returned no result for this question');
+
+      setOverrides({ ...overrides, [q.id]: result.awarded_marks });
+      setFeedbackOverrides({ ...feedbackOverrides, [q.id]: result.feedback });
       showToast('AI Audit Complete', 'success');
-    } catch (err) { 
-      console.error(err); 
-      showToast('Marking failed.', 'error'); 
-    } finally { 
-      setMarkingSingleId(null); 
+    } catch (err) {
+      console.error(err);
+      showToast('Marking failed.', 'error');
+    } finally {
+      setMarkingSingleId(null);
     }
   };
 
@@ -192,59 +172,65 @@ const SubmissionReview: React.FC = () => {
     });
   };
 
-  if (isLoading) return <div className="text-white p-10 flex items-center justify-center">Loading...</div>;
-  if (!submission) return <div className="text-white p-10">Not found</div>;
+  if (isLoading) return <div style={{ padding: 'var(--space-8)', textAlign: 'center' }} className="text-muted">Loading...</div>;
+  if (!submission) return <div style={{ padding: 'var(--space-8)' }}>Not found</div>;
 
   const liveScore = getLiveScore();
   const percentage = (liveScore / (submission.total_marks || 1)) * 100;
 
   return (
-    <div className="min-h-screen bg-[#0D1117] text-white font-outfit p-8">
-      <header className="flex justify-between items-center mb-12">
-        <div className="flex items-center gap-6">
-          <button onClick={() => navigate(-1)} className="p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-all"><ArrowLeft size={20} /></button>
+    <div style={{ minHeight: '100vh' }}>
+      <header
+        style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap',
+          gap: 'var(--space-4)', padding: 'var(--space-4) var(--space-6)', borderBottom: '2px solid var(--color-divider)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          <button onClick={() => navigate(-1)} className="btn btn-icon btn-secondary" aria-label="Back">
+            <ArrowLeft size={18} />
+          </button>
           <div>
-            <div className="flex items-center gap-3">
-              <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] break-words max-w-sm">{submission.exams.title}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <span className="text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{submission.exams.title}</span>
               {submission.exams.exam_type && (
-                <span className="px-2 py-0.5 bg-[#00E5FF]/10 text-[#00E5FF] rounded-lg text-[10px] uppercase font-black tracking-widest border border-[#00E5FF]/20">
-                  {submission.exams.exam_type.replace('_', ' ')}
-                </span>
+                <span className="tag tag-outline">{submission.exams.exam_type.replace('_', ' ')}</span>
               )}
             </div>
-            <h1 className="text-2xl font-black">{submission.students.student_number}</h1>
+            <h1 style={{ marginBottom: 0 }}>{submission.students.student_number}</h1>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <button onClick={handleDelete} disabled={isDeleting} className="px-6 py-2 rounded-xl bg-red-500/10 text-red-500 font-bold hover:bg-red-500 hover:text-white transition-all">Decommission</button>
-          <button onClick={handleSave} disabled={isSaving} className="px-8 py-3 rounded-xl bg-[#00E5FF] text-black font-black hover:scale-105 transition-all">Commit Marks</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <button onClick={handleDelete} disabled={isDeleting} className="btn btn-secondary">Delete submission</button>
+          <button onClick={handleSave} disabled={isSaving} className="btn btn-primary">Commit Marks</button>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto">
-        <div className="grid grid-cols-3 gap-8 mb-12">
-          <div className="bg-white/5 p-10 rounded-[2rem] border border-white/5">
-            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] mb-4">Total Marks</p>
-            <h2 className="text-6xl font-black">{liveScore.toFixed(1)} <span className="text-2xl opacity-20">/ {submission.total_marks}</span></h2>
+      <main style={{ maxWidth: 1120, margin: '0 auto', padding: 'var(--space-6) var(--space-6) var(--space-8)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+          <div className="card elev-sm">
+            <span className="card-kicker">Total Marks</span>
+            <h2 style={{ marginBottom: 0 }}>{liveScore.toFixed(1)} <span className="text-muted" style={{ fontSize: 18, fontWeight: 400 }}>/ {submission.total_marks}</span></h2>
           </div>
-          <div className="bg-white/5 p-10 rounded-[2rem] border border-white/5">
-            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] mb-4">Percentage</p>
-            <h2 className="text-6xl font-black">{percentage.toFixed(1)}%</h2>
+          <div className="card elev-sm">
+            <span className="card-kicker">Percentage</span>
+            <h2 style={{ marginBottom: 0 }}>{percentage.toFixed(1)}%</h2>
           </div>
-          <div className="bg-white/5 p-10 rounded-[2rem] border border-white/5">
-            <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em] mb-4">Violations</p>
-            <h2 className={`text-6xl font-black ${violationCount > 3 ? 'text-red-500' : 'text-green-500'}`}>{violationCount}</h2>
+          <div className="card elev-sm">
+            <span className="card-kicker">Violations</span>
+            <h2 style={{ marginBottom: 0, color: violationCount > 3 ? '#b3261e' : 'var(--color-accent-700)' }}>{violationCount}</h2>
           </div>
         </div>
 
-        <div className="flex items-center justify-between mb-8">
-          <h2 className="text-3xl font-black">Question Analysis</h2>
-          <button onClick={handleAutomark} disabled={isAutomarking} className="bg-purple-500 px-8 py-2 rounded-xl flex items-center gap-3 font-bold hover:bg-purple-600 active:scale-95 transition-all">
-            {isAutomarking ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />} Automark Submission
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-4)' }}>
+          <h2 style={{ marginBottom: 0 }}>Question Analysis</h2>
+          <button onClick={handleAutomark} disabled={isAutomarking} className="btn btn-primary">
+            {isAutomarking ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+            {isAutomarking ? 'Automarking…' : 'Automark Submission'}
           </button>
         </div>
 
-        <div className="space-y-8">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           {questions.map((q, idx) => {
             const awarded = overrides[q.id] ?? submission.marking_details?.[q.id]?.awarded_marks ?? 0;
             const feedback = feedbackOverrides[q.id] ?? submission.marking_details?.[q.id]?.feedback ?? '';
@@ -253,77 +239,102 @@ const SubmissionReview: React.FC = () => {
             const isCorrect = q.type === 'mcq' && (stud === corr || (stud.length === 1 && (corr.startsWith(stud + ".") || corr.startsWith(stud + " "))));
 
             return (
-              <div key={q.id} className="bg-white/5 rounded-[2.5rem] border border-white/5 hover:border-white/10 transition-all overflow-hidden">
+              <div key={q.id} className="card elev-sm">
                 {/* ── Question Header ── */}
-                <div className="flex items-center justify-between gap-4 px-10 pt-8 pb-4">
-                  <div className="flex items-center gap-4">
-                    <span className="w-12 h-12 flex items-center justify-center bg-[#00E5FF]/10 text-[#00E5FF] rounded-xl font-black">{idx + 1}</span>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                    <span
+                      style={{
+                        width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: 'var(--color-accent-100)', color: 'var(--color-accent-800)', fontFamily: 'var(--font-heading)', fontWeight: 800,
+                      }}
+                    >
+                      {idx + 1}
+                    </span>
                     <div>
-                      <h4 className="text-sm font-black uppercase tracking-widest text-white/40">{q.type === 'mcq' ? 'Multiple Choice' : 'Structured / Essay'}</h4>
-                      {q.type === 'mcq' && <span className={`inline-block mt-1 px-3 py-0.5 rounded-lg text-[10px] font-black uppercase ${isCorrect ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>{isCorrect ? 'Correct' : 'Incorrect'}</span>}
+                      <span className="card-kicker">{q.type === 'mcq' ? 'Multiple Choice' : 'Structured / Essay'}</span>
+                      {q.type === 'mcq' && (
+                        <span className={`tag ${isCorrect ? 'tag-accent-2' : 'tag-neutral'}`} style={{ marginLeft: 'var(--space-2)' }}>
+                          {isCorrect ? 'Correct' : 'Incorrect'}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <div className="bg-black/40 px-5 py-3 rounded-2xl border border-white/5 flex items-center gap-2">
-                      <input type="number" step="0.5" value={awarded} onChange={(e) => handleOverrideChange(q.id, parseFloat(e.target.value) || 0, q.marks)} className="bg-transparent text-center text-2xl font-black text-[#00E5FF] outline-none w-16" />
-                      <span className="text-lg opacity-20">/ {q.marks}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                    <div className="field" style={{ width: 90, marginBottom: 0 }}>
+                      <label>Marks awarded</label>
+                      <input
+                        type="number" step="0.5" min={0} max={q.marks} value={awarded}
+                        onChange={(e) => handleOverrideChange(q.id, parseFloat(e.target.value) || 0, q.marks)}
+                        className="input"
+                      />
                     </div>
-                    <button onClick={() => handleMarkSingle(q)} disabled={markingSingleId === q.id} className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]/40 hover:text-[#00E5FF] transition-all flex items-center gap-1.5 px-3 py-2 rounded-xl hover:bg-[#00E5FF]/5">
-                      {markingSingleId === q.id ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} AI Audit
+                    <span className="text-muted" style={{ fontSize: 13, marginTop: 14 }}>/ {q.marks}</span>
+                    <button onClick={() => handleMarkSingle(q)} disabled={markingSingleId === q.id} className="btn btn-ghost" style={{ marginTop: 14 }}>
+                      {markingSingleId === q.id ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} AI Audit
                     </button>
                   </div>
                 </div>
 
                 {/* ── Question Text ── */}
-                <div className="px-10 pb-6">
-                  <p className="text-lg font-medium text-white/85 leading-relaxed whitespace-pre-wrap">{q.question_text}</p>
-                </div>
+                <p style={{ fontSize: 14, margin: 0 }}>{q.question_text}</p>
+
+                <div className="hr" style={{ margin: '4px 0' }} />
 
                 {/* ── Answers Section ── */}
-                <div className="px-10 pb-6">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Student Answer */}
-                    <div>
-                      <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-3">Student's Answer</p>
-                      <div className="p-5 bg-black/30 rounded-2xl border border-white/5 min-h-[80px]">
-                        <pre className="text-sm font-mono opacity-80 whitespace-pre-wrap break-words">{submission.answers[q.id] || '(No answer provided)'}</pre>
-                        {q.type === 'mcq' && q.options && (
-                          <div className="mt-5 space-y-2">
-                            {q.options.map((opt, i) => {
-                              const char = String.fromCharCode(65 + i);
-                              const isSel = (submission.answers[q.id] || '').trim().toUpperCase() === char;
-                              const isCor = (q.correct_answer || '').trim().toUpperCase() === char;
-                              return (
-                                <div key={i} className={`p-3 rounded-xl text-sm flex items-center gap-3 border ${isSel ? isCor ? 'bg-green-500/10 border-green-500/30 text-green-500' : 'bg-red-500/10 border-red-500/30 text-red-500' : isCor ? 'bg-green-500/5 border-green-500/10 text-green-500/60' : 'bg-white/5 border-transparent opacity-40'}`}>
-                                   <span className="w-7 h-7 flex items-center justify-center bg-black/20 rounded-lg font-black text-xs">{char}</span>
-                                   <span className="break-words">{opt}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--space-4)' }}>
+                  {/* Student Answer */}
+                  <div>
+                    <div className="text-muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Student's Answer</div>
+                    <div style={{ border: '1px solid var(--color-divider)', padding: 'var(--space-3)', minHeight: 80 }}>
+                      <pre style={{ margin: 0, fontFamily: 'ui-monospace, monospace', fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{submission.answers[q.id] || '(No answer provided)'}</pre>
+                      {q.type === 'mcq' && q.options && (
+                        <div style={{ marginTop: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                          {q.options.map((opt, i) => {
+                            const char = String.fromCharCode(65 + i);
+                            const isSel = (submission.answers[q.id] || '').trim().toUpperCase() === char;
+                            const isCor = (q.correct_answer || '').trim().toUpperCase() === char;
+                            const bg = isSel ? (isCor ? 'var(--color-accent-2-100)' : '#fbeceb') : isCor ? 'var(--color-accent-2-100)' : 'transparent';
+                            const border = isSel ? (isCor ? 'var(--color-accent-2-500)' : '#b3261e') : isCor ? 'var(--color-accent-2-300)' : 'var(--color-divider)';
+                            const color = isSel ? (isCor ? 'var(--color-accent-2-800)' : '#b3261e') : isCor ? 'var(--color-accent-2-800)' : 'inherit';
+                            return (
+                              <div key={i} style={{ padding: '6px 10px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 'var(--space-2)', border: `1px solid ${border}`, background: bg, color }}>
+                                <span style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 11, background: 'color-mix(in srgb, currentColor 12%, transparent)' }}>{char}</span>
+                                <span style={{ wordBreak: 'break-word' }}>{opt}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    {/* Model Answer */}
-                    <div>
-                      <p className="text-[10px] font-black text-[#00E5FF]/30 uppercase tracking-[0.2em] mb-3">Model Answer</p>
-                      <div className="p-5 bg-[#00E5FF]/5 rounded-2xl border border-[#00E5FF]/10 min-h-[80px]">
-                        <pre className="text-sm font-mono text-[#00E5FF]/80 whitespace-pre-wrap break-words">{q.correct_answer || '(No model answer set)'}</pre>
-                      </div>
+                  </div>
+                  {/* Model Answer */}
+                  <div>
+                    <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4, color: 'var(--color-accent-700)' }}>Model Answer</div>
+                    <div style={{ border: '1px solid var(--color-accent-300)', background: 'var(--color-accent-100)', padding: 'var(--space-3)', minHeight: 80 }}>
+                      <pre style={{ margin: 0, fontFamily: 'ui-monospace, monospace', fontSize: 13, color: 'var(--color-accent-800)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{q.correct_answer || '(No model answer set)'}</pre>
                     </div>
                   </div>
                 </div>
 
                 {/* ── Feedback ── */}
-                <div className="px-10 pb-8">
-                  <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mb-3">Feedback to Student</p>
-                  <textarea value={feedback} onChange={(e) => handleFeedbackChange(q.id, e.target.value)} placeholder="Add feedback for this question..." className="w-full h-28 bg-white/[0.03] p-5 rounded-2xl border border-white/5 outline-none focus:border-[#00E5FF]/30 transition-all text-sm leading-relaxed resize-none" />
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label>Feedback to student</label>
+                  <textarea
+                    value={feedback} onChange={(e) => handleFeedbackChange(q.id, e.target.value)}
+                    placeholder="Add feedback for this question..." className="input" style={{ minHeight: 90, resize: 'vertical' }}
+                  />
                 </div>
               </div>
             );
           })}
         </div>
       </main>
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .spin { animation: spin 1s linear infinite; }
+      `}</style>
     </div>
   );
 };

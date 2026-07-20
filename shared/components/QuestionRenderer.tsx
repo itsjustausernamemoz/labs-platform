@@ -70,10 +70,15 @@ const StructuredAnswerInput: React.FC<{ value: string; onChange: (val: string) =
   };
 
   return (
-    <div 
-      className={`relative min-h-[12rem] bg-white/[0.03] border rounded-2xl overflow-hidden transition-all duration-300 ${
-        isFocused ? 'border-accent ring-1 ring-accent/20 bg-white/[0.05]' : 'border-white/10 hover:border-white/20'
-      }`}
+    <div
+      style={{
+        position: 'relative',
+        minHeight: '12rem',
+        background: 'var(--color-surface)',
+        border: `1px solid ${isFocused ? 'var(--color-accent)' : 'var(--color-divider)'}`,
+        overflow: 'hidden',
+        transition: 'border-color 0.2s ease',
+      }}
     >
       <LineNumbers value={value} />
       <textarea
@@ -86,12 +91,24 @@ const StructuredAnswerInput: React.FC<{ value: string; onChange: (val: string) =
         placeholder={"Type your answer here...\n\nPress Tab to indent, Enter for a new line."}
         rows={8}
         spellCheck={false}
-        className={[
-          'w-full min-h-[12rem] max-h-[24rem] overflow-y-auto resize-none',
-          'bg-transparent border-none outline-none p-4 pl-14',
-          'font-mono text-sm leading-6 whitespace-pre-wrap break-words text-white/80',
-        ].join(' ')}
-        style={{ tabSize: 4 }}
+        style={{
+          width: '100%',
+          minHeight: '12rem',
+          maxHeight: '24rem',
+          overflowY: 'auto',
+          resize: 'none',
+          background: 'transparent',
+          border: 'none',
+          outline: 'none',
+          padding: '16px 16px 16px 56px',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontSize: 14,
+          lineHeight: '24px',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          color: 'var(--color-text)',
+          tabSize: 4,
+        }}
       />
     </div>
   );
@@ -103,10 +120,34 @@ const LineNumbers: React.FC<{ value: string }> = ({ value }) => {
   return (
     <div
       aria-hidden
-      className="absolute left-0 top-0 bottom-0 w-10 flex flex-col items-end pr-2 pt-4 pb-4 select-none pointer-events-none"
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 40,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        paddingRight: 8,
+        paddingTop: 16,
+        paddingBottom: 16,
+        userSelect: 'none',
+        pointerEvents: 'none',
+      }}
     >
       {lines.map((_, i) => (
-        <span key={i} className="block font-mono text-sm leading-6 text-white/20">
+        <span
+          key={i}
+          style={{
+            display: 'block',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            fontSize: 14,
+            lineHeight: '24px',
+            color: 'var(--color-text)',
+            opacity: 0.35,
+          }}
+        >
           {i + 1}
         </span>
       ))}
@@ -116,54 +157,69 @@ const LineNumbers: React.FC<{ value: string }> = ({ value }) => {
 
 const QuestionRenderer: React.FC<QuestionRendererProps> = ({ question, index, answer, onChange, hasCoding, language }) => {
   const { showToast } = useNotification();
+  const hasCopiedSnippet = Boolean((window as any).__KOTLIN_CODE_BUFFER);
 
   return (
-    <div className="bg-panel/5 border border-white/10 rounded-xl p-6 mb-8">
-      <div className="flex justify-between items-start mb-4">
-        <h3 className="text-xl font-bold text-accent">Question {index + 1}</h3>
-        <span className="px-3 py-1 bg-white/10 rounded-full text-sm">{question.marks} Marks</span>
+    <div className="card" style={{ border: '1px solid var(--color-divider)', padding: 'var(--space-6)', marginBottom: 'var(--space-8)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-4)' }}>
+        <h3 style={{ fontSize: 20, color: 'var(--color-accent-700)', margin: 0 }}>Question {index + 1}</h3>
+        <span className="tag tag-neutral">{question.marks} Marks</span>
       </div>
 
-      <p className="text-lg mb-6 leading-relaxed whitespace-pre-wrap">{question.question_text}</p>
+      <p style={{ fontSize: 18, marginBottom: 'var(--space-6)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{question.question_text}</p>
 
       {question.type === 'mcq' ? (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <style>{`
+            .qr-opt { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--color-divider); cursor: pointer; transition: background 0.15s ease, border-color 0.15s ease; }
+            .qr-opt:hover { background: var(--color-neutral-100); }
+            .qr-opt.selected { background: var(--color-accent-100); border-color: var(--color-accent); }
+            .qr-opt .qr-dot { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--color-divider); flex: none; }
+            .qr-opt.selected .qr-dot { border-color: var(--color-accent); background: var(--color-accent); box-shadow: inset 0 0 0 3px var(--color-bg); }
+          `}</style>
           {question.options?.map((option, idx) => {
             const letter = String.fromCharCode(65 + idx); // A, B, C, D...
             const isSelected = answer === letter;
 
             return (
-              <label
-                key={idx}
-                className={`flex items-center gap-4 p-4 rounded-lg border cursor-pointer transition-all ${
-                  isSelected
-                    ? 'bg-accent/20 border-accent'
-                    : 'bg-white/5 border-white/10 hover:bg-white/10'
-                }`}
-              >
+              <label key={idx} className={`qr-opt${isSelected ? ' selected' : ''}`}>
                 <input
                   type="radio"
                   name={`question-${question.id}`}
                   value={letter}
                   checked={isSelected}
                   onChange={() => onChange(letter)}
-                  className="w-4 h-4 accent-accent"
+                  style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
                 />
+                <span className="qr-dot" />
                 <span>{option}</span>
               </label>
             );
           })}
         </div>
       ) : (
-        <div className="space-y-6">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           <StructuredAnswerInput value={answer || ''} onChange={onChange} />
-          
-          <div className="flex items-center justify-between">
-            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-white/20">
-              <kbd className="px-1.5 py-0.5 bg-white/5 rounded-md border border-white/5 text-white/40">Tab Indent</kbd>
-              <kbd className="px-1.5 py-0.5 bg-white/5 rounded-md border border-white/5 text-white/40">Auto Line</kbd>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <p
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 10,
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.2em',
+                color: 'var(--color-text)',
+                opacity: 0.4,
+                margin: 0,
+              }}
+            >
+              <kbd style={{ padding: '2px 6px', border: '1px solid var(--color-divider)', fontFamily: 'inherit', color: 'inherit' }}>Tab Indent</kbd>
+              <kbd style={{ padding: '2px 6px', border: '1px solid var(--color-divider)', fontFamily: 'inherit', color: 'inherit' }}>Auto Line</kbd>
             </p>
-            
+
             {hasCoding && (
               <button
                 onClick={() => {
@@ -176,30 +232,46 @@ const QuestionRenderer: React.FC<QuestionRendererProps> = ({ question, index, an
                     showToast('Buffer empty. Please click "Copy Snippet" on the IDE first.', 'info');
                   }
                 }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
-                  (window as any).__KOTLIN_CODE_BUFFER 
-                    ? 'bg-accent/10 border border-accent/20 text-accent hover:bg-accent/20' 
-                    : 'bg-white/5 border border-white/10 text-white/20'
-                }`}
+                className="btn btn-secondary"
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.15em',
+                  borderColor: hasCopiedSnippet ? 'var(--color-accent)' : 'var(--color-divider)',
+                  color: hasCopiedSnippet ? 'var(--color-accent-700)' : 'var(--color-text)',
+                  opacity: hasCopiedSnippet ? 1 : 0.5,
+                }}
               >
-                <ClipboardCheck className="w-3.5 h-3.5" /> Paste from Compiler
+                <ClipboardCheck size={14} /> Paste from Compiler
               </button>
             )}
           </div>
 
           {hasCoding && language === 'kotlin' && (
-            <div className="pt-8 border-t border-white/5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
-                    <FileCode className="w-4 h-4" />
+            <div style={{ paddingTop: 'var(--space-6)', borderTop: '1px solid var(--color-divider)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-4)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'var(--color-accent-100)',
+                      color: 'var(--color-accent-700)',
+                    }}
+                  >
+                    <FileCode size={16} />
                   </div>
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-accent font-outfit">Kotlin Compiler</h4>
+                  <h4 style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', color: 'var(--color-accent-700)', margin: 0 }}>
+                    Kotlin Compiler
+                  </h4>
                 </div>
               </div>
-              <KotlinEditor 
+              <KotlinEditor
                 initialCode={answer && answer.includes('fun main') ? answer : undefined}
-                className="shadow-2xl"
               />
             </div>
           )}
@@ -210,4 +282,3 @@ const QuestionRenderer: React.FC<QuestionRendererProps> = ({ question, index, an
 };
 
 export default QuestionRenderer;
-

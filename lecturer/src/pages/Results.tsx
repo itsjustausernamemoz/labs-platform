@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@shared/lib/supabase';
+import { supabase } from '@shared/lib/apiClient';
 import {
   Calendar, Search, FileEdit, Download, Trash2,
-  ChevronRight, ArrowLeft, Users, Trophy, AlertCircle, Loader2, Sparkles, Filter
+  ArrowLeft, Users, Trophy, Loader2, Sparkles, RotateCcw
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -94,7 +94,7 @@ const Results: React.FC = () => {
               student:students(student_number)
             `)
             .eq('exam_id', examId);
-            
+
           if (fallbackError) throw fallbackError;
 
           enriched = await Promise.all((fallbackSubs || []).map(async (sub: any) => {
@@ -168,7 +168,7 @@ const Results: React.FC = () => {
           .eq('exam_id', examId);
 
         if (!trashError) {
-          const enrichedTrash = (trash || []).map(t => ({
+          const enrichedTrash = (trash || []).map((t: any) => ({
             ...t,
             // Handle the case where student might be an array or null
             student: Array.isArray(t.student) ? t.student[0] : t.student,
@@ -200,20 +200,20 @@ const Results: React.FC = () => {
       // PDF Generation logic
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.width;
-      
+
       // -- Header --
       doc.setFillColor(13, 17, 23); // Dark theme header
       doc.rect(0, 0, pageWidth, 45, 'F');
-      
+
       doc.setTextColor(0, 229, 255);
       doc.setFontSize(24);
       doc.setFont('helvetica', 'bold');
       doc.text('CLASS FOCUS REPORT', 20, 25);
-      
+
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(10);
       doc.text('AGGREGATE ACADEMIC PERFORMANCE ANALYSIS', 20, 32);
-      
+
       // -- Exam info --
       doc.setTextColor(150, 150, 150);
       doc.setFontSize(9);
@@ -221,7 +221,7 @@ const Results: React.FC = () => {
       doc.text(`DATE: ${new Date().toLocaleDateString()}`, pageWidth - 20, 55, { align: 'right' });
       doc.text(`TOTAL GRADED SUBMISSIONS: ${submissions.filter(s => s.graded).length}`, 20, 60);
       doc.text(`CLASS AVERAGE: ${averageScore}%`, pageWidth - 20, 60, { align: 'right' });
-      
+
       doc.setDrawColor(230, 230, 230);
       doc.line(20, 65, pageWidth - 20, 65);
 
@@ -231,7 +231,7 @@ const Results: React.FC = () => {
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
       doc.text('EXAM PERFORMANCE OVERVIEW', 20, yPos);
-      
+
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');
       const distributionLines = doc.splitTextToSize(data.distribution_analysis || '', pageWidth - 40);
@@ -384,16 +384,31 @@ const Results: React.FC = () => {
       message: `Are you sure you want to completely Wipe ${studentNumber}'s current attempt? This will permanently delete their active submission AND clear all their security violations. They will start completely fresh.`,
       confirmText: 'Wipe Everything',
       onConfirm: async () => {
-        // 1. Delete active submission (moves to trash)
-        await supabase.from('submissions').delete().eq('exam_id', examId).eq('student_id', studentId);
-        
+        // 1. Delete active submission (moves to trash) — the delete adapter only
+        // supports deleting by id, so look up this student's submission first.
+        const { data: existing } = await supabase
+          .from('submissions')
+          .select('id')
+          .eq('exam_id', examId)
+          .eq('student_id', studentId)
+          .maybeSingle();
+
+        if (existing?.id) {
+          const { error: subError } = await supabase.from('submissions').delete().eq('id', existing.id);
+          if (subError) {
+            console.error('Wipe submission error:', subError);
+            showToast(`Failed to delete submission: ${subError.message}`, 'error');
+            return;
+          }
+        }
+
         // 2. Clear violations
         const { error: violError } = await supabase
           .from('violations')
           .delete()
           .eq('exam_id', examId)
           .eq('student_id', studentId);
-        
+
         if (violError) {
           console.error('Wipe violations error:', violError);
           showToast(`Failed to clear violations: ${violError.message}`, 'error');
@@ -413,7 +428,7 @@ const Results: React.FC = () => {
         // 1. Reset the submission status and scores
         const { error: subError } = await supabase
           .from('submissions')
-          .update({ 
+          .update({
             status: 'draft',
             graded: false,
             score: 0,
@@ -440,7 +455,7 @@ const Results: React.FC = () => {
             .delete()
             .eq('student_id', sub.student_id)
             .eq('exam_id', sub.exam_id);
-          
+
           if (violError) {
             console.error('Error clearing violations:', violError);
           }
@@ -518,7 +533,7 @@ const Results: React.FC = () => {
 
         // Delete from trash
         await supabase.from('deleted_submissions').delete().eq('id', sub.id);
-        
+
         showToast('Submission restored successfully', 'success');
         fetchResults();
       }
@@ -553,7 +568,7 @@ const Results: React.FC = () => {
   // Group submissions by student
   const groupedSubmissions = React.useMemo(() => {
     const groups: Record<string, { student: any, submissions: Submission[] }> = {};
-    
+
     submissions.forEach(sub => {
       if (!groups[sub.student_id]) {
         groups[sub.student_id] = {
@@ -566,7 +581,7 @@ const Results: React.FC = () => {
 
     // Sort submissions within each group by date (latest first)
     Object.values(groups).forEach(group => {
-      group.submissions.sort((a, b) => 
+      group.submissions.sort((a, b) =>
         new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
       );
     });
@@ -574,7 +589,7 @@ const Results: React.FC = () => {
     const filteredGroups = Object.entries(groups).map(([id, data]) => ({
       student_id: id,
       ...data
-    })).filter(group => 
+    })).filter(group =>
       group.student.student_number.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -584,7 +599,7 @@ const Results: React.FC = () => {
 
       const scoreA = latestA.total_marks > 0 ? (latestA.score / latestA.total_marks) : 0;
       const scoreB = latestB.total_marks > 0 ? (latestB.score / latestB.total_marks) : 0;
-      
+
       const isPendingA = !latestA.graded;
       const isPendingB = !latestB.graded;
 
@@ -653,406 +668,334 @@ const Results: React.FC = () => {
     XLSX.writeFile(workbook, `${examTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_results.xlsx`);
   };
 
+  // -- Presentational helpers (styling only, no business logic) --
+  const tabButtonStyle = (active: boolean, danger = false): React.CSSProperties => ({
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '9px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em',
+    fontFamily: 'var(--font-heading)',
+    border: '1px solid var(--color-divider)',
+    borderColor: active ? (danger ? 'var(--color-accent-700)' : 'var(--color-accent)') : 'var(--color-divider)',
+    background: active ? (danger ? 'var(--color-accent-700)' : 'var(--color-accent)') : 'transparent',
+    color: active ? 'var(--color-bg)' : (danger ? 'var(--color-accent-700)' : 'var(--color-text)'),
+    cursor: 'pointer',
+  });
+
+  const statValue: React.CSSProperties = { fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 30 };
+  const iconBtn: React.CSSProperties = { padding: 6 };
+  const dangerIconBtn: React.CSSProperties = { padding: 6, color: 'var(--color-accent-700)' };
+
+  const isEmpty =
+    (activeTab === 'submissions' && groupedSubmissions.length === 0) ||
+    (activeTab === 'students' && enrollments.length === 0) ||
+    (activeTab === 'trash' && trashSubmissions.length === 0);
+
   return (
-    <div className="min-h-screen bg-[#0A1024] text-white font-outfit pb-20">
-      {/* Dynamic Background */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-accent/10 rounded-full blur-[120px] animate-pulse" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-500/10 rounded-full blur-[120px] animate-pulse" />
-      </div>
-
-      <nav className="sticky top-0 z-[100] bg-[#0A1024]/60 backdrop-blur-3xl border-b border-white/5 py-4">
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="group flex items-center gap-3 text-white/40 hover:text-white transition-all"
-          >
-            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-accent/10 group-hover:text-accent transition-all">
-              <ArrowLeft className="w-5 h-5" />
-            </div>
-            <span className="text-xs font-black uppercase tracking-widest">Dashboard</span>
-          </button>
-          
-          <div className="text-center">
-            <h1 className="text-xl font-black tracking-tight text-white font-outfit break-words max-w-lg">{examTitle}</h1>
-            <div className="flex items-center justify-center gap-2 mt-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-              <p className="text-[10px] text-accent/60 font-black uppercase tracking-[0.2em]">Live Intelligence Repository</p>
-            </div>
-          </div>
-
-          <div className="w-24 flex justify-end">
-            <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center border border-accent/20">
-              <Trophy className="w-4 h-4 text-accent" />
-            </div>
-          </div>
-        </div>
+    <div style={{ minHeight: '100vh' }}>
+      <nav className="nav">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="btn btn-ghost"
+          style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 'auto' }}
+        >
+          <ArrowLeft size={16} /> Dashboard
+        </button>
+        <span style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 16, textAlign: 'center' }}>
+          {examTitle}
+        </span>
+        <span className="tag tag-accent" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Trophy size={12} /> Results
+        </span>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-6 py-12 relative z-10">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 mb-12">
-          <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/5 w-fit">
-            <button
-              onClick={() => setActiveTab('submissions')}
-              className={`px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-3 ${
-                activeTab === 'submissions' 
-                  ? 'bg-accent text-[#0A1024] shadow-[0_0_20px_rgba(0,229,255,0.3)]' 
-                  : 'text-white/40 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              {isRefreshing && activeTab === 'submissions' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4"/>}
+      <main className="wrap" style={{ maxWidth: 1120, margin: '0 auto', padding: 'var(--space-8) var(--space-6)' }}>
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          {examTitle && <span className="tag tag-neutral">{examTitle}</span>}
+          <h1 style={{ marginTop: 'var(--space-2)' }}>Results &amp; analytics</h1>
+          <p className="text-muted" style={{ margin: 0 }}>
+            Review candidate submissions, manage enrollment, and generate class insight reports.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-4)', margin: 'var(--space-6) 0' }}>
+          <div className="card elev-sm">
+            <span className="card-kicker">Total candidates</span>
+            <span style={statValue}>{submissions.length}</span>
+          </div>
+          <div className="card elev-sm">
+            <span className="card-kicker">Mean performance</span>
+            <span style={statValue}>{averageScore}%</span>
+          </div>
+          <div className="card elev-sm">
+            <span className="card-kicker">High-risk violations</span>
+            <span style={{ ...statValue, color: 'var(--color-accent-700)' }}>
+              {submissions.filter(s => (s.violations_count ?? 0) >= 2).length}
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            <button onClick={() => setActiveTab('submissions')} style={tabButtonStyle(activeTab === 'submissions')}>
+              {isRefreshing && activeTab === 'submissions' ? <Loader2 size={14} className="spin" /> : <Users size={14} />}
               Candidates ({groupedSubmissions.length})
             </button>
-            <button
-              onClick={() => setActiveTab('students')}
-              className={`px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-3 ${
-                activeTab === 'students' 
-                  ? 'bg-accent text-[#0A1024] shadow-[0_0_20px_rgba(0,229,255,0.3)]' 
-                  : 'text-white/40 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              {isRefreshing && activeTab === 'students' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4"/>}
+            <button onClick={() => setActiveTab('students')} style={tabButtonStyle(activeTab === 'students')}>
+              {isRefreshing && activeTab === 'students' ? <Loader2 size={14} className="spin" /> : <Calendar size={14} />}
               Enrolled ({enrollments.length})
             </button>
-            <button
-              onClick={() => setActiveTab('trash')}
-              className={`px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-3 ${
-                activeTab === 'trash' 
-                  ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.3)]' 
-                  : 'text-white/40 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <Trash2 className="w-4 h-4"/>
+            <button onClick={() => setActiveTab('trash')} style={tabButtonStyle(activeTab === 'trash', true)}>
+              <Trash2 size={14} />
               Trash ({trashSubmissions.length})
             </button>
           </div>
 
-          <div className="flex items-center gap-4">
-             <div className="relative group/search">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within/search:text-accent transition-colors" />
-                <input
-                  type="text"
-                  placeholder="Filter student ID..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-12 pr-6 py-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-all text-sm font-bold w-full sm:w-64 placeholder:text-white/10"
-                />
-              </div>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ position: 'relative' }}>
+              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', opacity: 0.4, pointerEvents: 'none' }} />
+              <input
+                type="text"
+                placeholder="Filter student ID…"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="input"
+                style={{ paddingLeft: 30, width: 200 }}
+              />
+            </div>
 
-              <div className="relative group/sort hidden sm:block">
-                <Filter className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-hover/sort:text-accent transition-colors pointer-events-none" />
-                <select
-                  value={sortOption}
-                  onChange={(e) => setSortOption(e.target.value as any)}
-                  className="pl-11 pr-10 py-4 bg-white/5 border border-white/10 rounded-2xl outline-none focus:border-accent/40 focus:bg-white/[0.08] transition-all text-[11px] font-black uppercase tracking-widest text-white cursor-pointer appearance-none hover:bg-white/10 w-full sm:w-auto"
-                >
-                  <option value="status-pending" className="bg-[#0A1024] text-white">Review Required First</option>
-                  <option value="name-asc" className="bg-[#0A1024] text-white">Student No. (A-Z)</option>
-                  <option value="name-desc" className="bg-[#0A1024] text-white">Student No. (Z-A)</option>
-                  <option value="status-graded" className="bg-[#0A1024] text-white">Verified First</option>
-                  <option value="score-highest" className="bg-[#0A1024] text-white">Score: Highest First</option>
-                  <option value="score-lowest" className="bg-[#0A1024] text-white">Score: Lowest First</option>
-                </select>
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <ChevronRight className="w-4 h-4 text-white/20 rotate-90" />
-                </div>
-              </div>
-              
-              <div className="flex gap-3">
-                <button
-                  onClick={handleDownloadScript}
-                  disabled={submissions.length === 0}
-                  className="bg-white/5 border border-white/10 text-white p-4 rounded-2xl hover:bg-white/10 transition-all disabled:opacity-30 group"
-                  title="Export Manifest (CSV)"
-                >
-                  <Download className="w-5 h-5 text-accent group-hover:scale-110 transition-transform" />
-                </button>
-                <button
-                  onClick={handleGenerateClassFocusReport}
-                  disabled={isGeneratingClassReport || submissions.filter(s => s.graded).length === 0}
-                  className="glass-button bg-white text-[#0A1024] px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center gap-3 hover:scale-[1.02] shadow-xl disabled:opacity-30"
-                >
-                  {isGeneratingClassReport ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
-                  Generate Focus
-                </button>
-              </div>
+            <select
+              value={sortOption}
+              onChange={(e) => setSortOption(e.target.value as any)}
+              className="input"
+              style={{ width: 'auto' }}
+            >
+              <option value="status-pending">Review required first</option>
+              <option value="name-asc">Student no. (A–Z)</option>
+              <option value="name-desc">Student no. (Z–A)</option>
+              <option value="status-graded">Verified first</option>
+              <option value="score-highest">Score: highest first</option>
+              <option value="score-lowest">Score: lowest first</option>
+            </select>
+
+            <button
+              onClick={handleDownloadScript}
+              disabled={submissions.length === 0}
+              className="btn btn-secondary"
+              title="Export Manifest (CSV)"
+            >
+              <Download size={16} /> Export
+            </button>
+            <button
+              onClick={handleGenerateClassFocusReport}
+              disabled={isGeneratingClassReport || submissions.filter(s => s.graded).length === 0}
+              className="btn btn-primary"
+            >
+              {isGeneratingClassReport ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+              Generate focus report
+            </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
-          <div className="glass-panel p-10 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-blue-500/20 transition-all" />
-            <div className="flex items-center gap-6 relative z-10">
-              <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center text-blue-400 border border-blue-500/20">
-                <Users className="w-8 h-8" />
-              </div>
-              <div>
-                <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Total Candidates</p>
-                <p className="text-4xl font-black text-white">{submissions.length}</p>
-              </div>
-            </div>
-          </div>
+        {activeTab === 'submissions' && (
+          groupedSubmissions.length > 0 ? (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Score</th>
+                  <th>Security</th>
+                  <th>Submitted</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupedSubmissions.map((group) => {
+                  const latest = group.submissions[0];
+                  const isExpanded = expandedStudentId === group.student_id;
+                  const violations = latest.violations_count ?? 0;
 
-          <div className="glass-panel p-10 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-accent/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-accent/20 transition-all" />
-            <div className="flex items-center gap-6 relative z-10">
-              <div className="w-16 h-16 bg-accent/10 rounded-2xl flex items-center justify-center text-accent border border-accent/20">
-                <Trophy className="w-8 h-8" />
-              </div>
-              <div>
-                <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">Mean Performance</p>
-                <p className="text-4xl font-black text-white">{averageScore}%</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="glass-panel p-10 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-red-500/20 transition-all" />
-            <div className="flex items-center gap-6 relative z-10">
-              <div className="w-16 h-16 bg-red-500/10 rounded-2xl flex items-center justify-center text-red-500 border border-red-500/20">
-                <AlertCircle className="w-8 h-8" />
-              </div>
-              <div>
-                <p className="text-[10px] text-white/40 font-black uppercase tracking-[0.2em] mb-1">High Risk Violations</p>
-                <p className="text-4xl font-black text-white">{submissions.filter(s => (s.violations_count ?? 0) >= 2).length}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="relative group">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-black tracking-tight font-outfit text-white">
-              {activeTab === 'submissions' ? 'Submission Analysis' : activeTab === 'students' ? 'Candidate Roster' : 'Decommissioned Vault'}
-            </h2>
-          </div>
-
-          <div className="space-y-4">
-            {activeTab === 'submissions' ? (
-              groupedSubmissions.map((group) => {
-                const latest = group.submissions[0];
-                const isExpanded = expandedStudentId === group.student_id;
-                
-                return (
-                  <div key={group.student_id} className="glass-panel rounded-3xl overflow-hidden border border-white/5 hover:border-accent/20 transition-all duration-300">
-                    <div 
-                      className={`p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 cursor-pointer ${isExpanded ? 'bg-white/5' : 'hover:bg-white/[0.04]'}`}
-                      onClick={() => setExpandedStudentId(isExpanded ? null : group.student_id)}
-                    >
-                      <div className="flex items-center gap-6">
-                        <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center border border-accent/20 group-hover:scale-110 transition-transform">
-                          <Users className="w-7 h-7 text-accent" />
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-black text-white font-outfit">{group.student?.student_number || 'Internal-ID'}</h3>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-[#00E5FF]">Attempt #{latest.attempt_number || 1}</span>
+                  return (
+                    <React.Fragment key={group.student_id}>
+                      <tr
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => setExpandedStudentId(isExpanded ? null : group.student_id)}
+                      >
+                        <td>
+                          <div style={{ fontWeight: 700 }}>{group.student?.student_number || 'Internal-ID'}</div>
+                          <div className="text-muted" style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            Attempt #{latest.attempt_number || 1}
                             {group.submissions.length > 1 && (
-                              <span className="px-2 py-0.5 rounded-lg bg-accent/10 text-accent text-[9px] font-black uppercase tracking-widest border border-accent/20">
-                                {group.submissions.length} Total Sessions
-                              </span>
+                              <span className="tag tag-neutral">{group.submissions.length} sessions</span>
                             )}
                           </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 md:gap-12 flex-1 max-w-3xl">
-                        <div className="space-y-1">
-                          <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Aggregate Score</p>
-                          <div className="flex items-baseline gap-1">
-                            <span className="text-xl font-black text-accent">{latest.score}</span>
-                            <span className="text-xs font-bold text-white/20">/ {latest.total_marks}</span>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Security Status</p>
-                          <div className={`flex items-center gap-1.5 text-xs font-black uppercase tracking-widest ${
-                            (latest.violations_count ?? 0) === 0 ? 'text-green-400' :
-                            (latest.violations_count ?? 0) >= 3 ? 'text-red-400' : 'text-orange-400'
-                          }`}>
-                            <div className={`w-1.5 h-1.5 rounded-full ${
-                              (latest.violations_count ?? 0) === 0 ? 'bg-green-400' :
-                              (latest.violations_count ?? 0) >= 3 ? 'bg-red-400' : 'bg-orange-400'
-                            }`} />
-                            {latest.violations_count ?? 0} Violations
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Submission</p>
-                          <div className="flex items-center gap-2 text-xs font-bold text-white/60">
-                            <Calendar className="w-3.5 h-3.5" />
-                            {format(new Date(latest.submitted_at), 'MMM d, HH:mm')}
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em]">Entity Status</p>
-                          <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                            latest.status === 'draft' 
-                              ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' 
-                              : latest.graded 
-                                ? 'bg-green-500/10 text-green-400 border-green-500/20' 
-                                : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                          }`}>
-                            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse mr-2" />
-                            {latest.status === 'draft' ? 'At Work' : latest.graded ? 'Verified' : 'Review Required'}
+                        </td>
+                        <td style={{ fontWeight: 800 }}>
+                          {latest.score} <span className="text-muted" style={{ fontWeight: 400 }}>/ {latest.total_marks}</span>
+                        </td>
+                        <td>
+                          <span
+                            className="tag"
+                            style={{
+                              background: violations === 0 ? 'var(--color-accent-2-100)' : violations >= 3 ? 'var(--color-accent-100)' : 'var(--color-neutral-200)',
+                              color: violations === 0 ? 'var(--color-accent-2-800)' : violations >= 3 ? 'var(--color-accent-700)' : 'var(--color-neutral-800)',
+                            }}
+                          >
+                            {violations} violation{violations === 1 ? '' : 's'}
                           </span>
-                        </div>
-                      </div>
+                        </td>
+                        <td className="text-muted">{format(new Date(latest.submitted_at), 'MMM d, HH:mm')}</td>
+                        <td>
+                          <span className={`tag ${latest.status === 'draft' ? 'tag-neutral' : latest.graded ? 'tag-accent-2' : 'tag-outline'}`}>
+                            {latest.status === 'draft' ? 'At work' : latest.graded ? 'Verified' : 'Review required'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/review/${latest.id}`); }}
+                            className="btn btn-ghost"
+                            style={iconBtn}
+                            title="Detailed Audit"
+                          >
+                            <FileEdit size={15} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleResumeSession(latest.id, group.student?.student_number || ''); }}
+                            className="btn btn-ghost"
+                            style={iconBtn}
+                            title="Restore Draft Access"
+                          >
+                            <RotateCcw size={15} />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteSubmission(latest.id, group.student_id); }}
+                            className="btn btn-ghost"
+                            style={dangerIconBtn}
+                            title="Decommission Submission"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </td>
+                      </tr>
 
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); navigate(`/review/${latest.id}`); }}
-                          className="w-12 h-12 rounded-2xl bg-accent text-[#0A1024] flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-lg"
-                          title="Detailed Audit"
-                        >
-                          <FileEdit className="w-5 h-5" />
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); handleResumeSession(latest.id, group.student?.student_number || ''); }}
-                          className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-all text-white/40 hover:text-white"
-                          title="Restore Draft Access"
-                        >
-                          <ChevronRight className="w-5 h-5 rotate-180" />
-                        </button>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); handleDeleteSubmission(latest.id, group.student_id); }}
-                          className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all"
-                          title="Decommission Submission"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </div>
+                      {isExpanded && group.submissions.length > 1 && (
+                        <tr>
+                          <td colSpan={6} style={{ background: 'var(--color-neutral-100)' }}>
+                            <div className="card-kicker" style={{ margin: 'var(--space-2) 0' }}>Historical assessment logs</div>
+                            <table className="table" style={{ fontSize: 13 }}>
+                              <tbody>
+                                {group.submissions.slice(1).map((sub) => (
+                                  <tr key={sub.id}>
+                                    <td>Attempt #{sub.attempt_number || 1} — {format(new Date(sub.submitted_at), 'MMM d, yyyy · HH:mm')}</td>
+                                    <td style={{ fontWeight: 800 }}>{sub.score} pts</td>
+                                    <td style={{ textAlign: 'right' }}>
+                                      <button
+                                        onClick={() => navigate(`/review/${sub.id}`)}
+                                        className="btn btn-ghost"
+                                        style={iconBtn}
+                                        title="Detailed Audit"
+                                      >
+                                        <FileEdit size={14} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : null
+        )}
 
-                    {isExpanded && group.submissions.length > 1 && (
-                      <div className="bg-black/20 border-t border-white/5 p-8 animate-in slide-in-from-top duration-300">
-                        <div className="flex items-center gap-3 mb-6">
-                           <div className="w-1 h-4 bg-accent rounded-full" />
-                           <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40">Historical Assessment Logs</h4>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {group.submissions.slice(1).map((sub) => (
-                            <div key={sub.id} className="bg-white/5 border border-white/5 p-6 rounded-2xl flex items-center justify-between group/audit">
-                              <div className="flex items-center gap-5">
-                                <div className="p-3 bg-white/5 rounded-xl border border-white/5 text-white/20 group-hover/audit:text-accent transition-colors">
-                                  <Calendar className="w-4 h-4" />
-                                </div>
-                                <div>
-                                  <p className="text-sm font-bold text-white/80">Attempt #{sub.attempt_number || 1} — {format(new Date(sub.submitted_at), 'MMM d, yyyy · HH:mm')}</p>
-                                  <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest mt-1">Archived Repository</p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-4">
-                                <span className="text-lg font-black text-white/40">{sub.score} <span className="text-[10px] font-bold">PTS</span></span>
-                                <button 
-                                  onClick={() => navigate(`/review/${sub.id}`)}
-                                  className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent hover:bg-accent hover:text-[#0A1024] transition-all"
-                                >
-                                  <FileEdit className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            ) : activeTab === 'students' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {activeTab === 'students' && (
+          enrollments.length > 0 ? (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Enrolled</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
                 {enrollments.filter(e => e.student?.student_number.toLowerCase().includes(searchTerm.toLowerCase())).map((enroll) => (
-                  <div key={enroll.id} className="glass-panel p-8 rounded-[2rem] border border-white/5 hover:border-accent/30 transition-all group overflow-hidden relative">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-accent/5 rounded-full blur-2xl group-hover:bg-accent/10 transition-all" />
-                    <div className="flex items-center justify-between mb-8 relative z-10">
-                      <div className="w-14 h-14 bg-accent/10 rounded-2xl flex items-center justify-center text-accent border border-accent/20 font-black">
-                        {enroll.student?.student_number?.substring(0, 2) || 'ST'}
-                      </div>
-                      <button 
-                        onClick={() => handleUnenroll(enroll.id, enroll.student?.student_number)}
-                        className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all"
-                        title="Remove Candidate"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <h3 className="text-2xl font-black mb-1 group-hover:text-accent transition-colors">{enroll.student?.student_number}</h3>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-white/30 mb-8">Registered Candidate</p>
-
-                    <div className="pt-6 border-t border-white/5 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-3 h-3 text-white/20" />
-                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Enrolled {format(new Date(enroll.enrolled_at), 'MMM d')}</span>
-                      </div>
-                      <button 
+                  <tr key={enroll.id}>
+                    <td style={{ fontWeight: 700 }}>{enroll.student?.student_number}</td>
+                    <td className="text-muted">{format(new Date(enroll.enrolled_at), 'MMM d, yyyy')}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button
                         onClick={() => handleWipeStudent(enroll.student_id, enroll.student?.student_number)}
-                        className="text-[9px] font-black uppercase tracking-widest text-red-400 hover:text-red-300 transition-colors"
+                        className="btn btn-ghost"
+                        style={dangerIconBtn}
+                        title="Wipe Remaining Attempt"
                       >
-                       Full Wipe Access
+                        <RotateCcw size={15} />
                       </button>
-                    </div>
-                  </div>
+                      <button
+                        onClick={() => handleUnenroll(enroll.id, enroll.student?.student_number)}
+                        className="btn btn-ghost"
+                        style={dangerIconBtn}
+                        title="Unenroll Candidate"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
                 ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              </tbody>
+            </table>
+          ) : null
+        )}
+
+        {activeTab === 'trash' && (
+          trashSubmissions.length > 0 ? (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Score</th>
+                  <th>Submitted</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
                 {trashSubmissions.map((sub) => (
-                  <div key={sub.id} className="glass-panel p-8 rounded-[2rem] border border-red-500/10 hover:border-red-500/30 transition-all group relative grayscale opacity-60 hover:grayscale-0 hover:opacity-100">
-                    <div className="flex justify-between items-start mb-8">
-                       <div>
-                        <h3 className="text-2xl font-black text-white">{sub.student?.student_number}</h3>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-red-500/60 mt-1">Decommissioned Data</p>
-                       </div>
-                       <Trophy className="w-5 h-5 text-white/10" />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 mb-8">
-                      <div className="bg-black/20 p-4 rounded-2xl border border-white/5">
-                        <p className="text-[9px] font-black text-white/20 uppercase mb-1">Score</p>
-                        <p className="text-lg font-black">{sub.score}/{sub.total_marks}</p>
-                      </div>
-                      <div className="bg-black/20 p-4 rounded-2xl border border-white/5">
-                        <p className="text-[9px] font-black text-white/20 uppercase mb-1">Time</p>
-                        <p className="text-xs font-bold text-white/60">{format(new Date(sub.submitted_at), 'MMM d')}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 mt-4">
-                      <button 
-                        onClick={() => handleRestoreSubmission(sub)}
-                        className="flex-1 bg-accent text-[#0A1024] py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:scale-105 active:scale-95 transition-all"
-                      >
-                        Recommission
+                  <tr key={sub.id}>
+                    <td style={{ fontWeight: 700 }}>{sub.student?.student_number}</td>
+                    <td style={{ fontWeight: 800 }}>{sub.score}/{sub.total_marks}</td>
+                    <td className="text-muted">{format(new Date(sub.submitted_at), 'MMM d, yyyy')}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button onClick={() => handleRestoreSubmission(sub)} className="btn btn-secondary" style={{ marginRight: 6 }}>
+                        Restore
                       </button>
-                      <button 
+                      <button
                         onClick={() => handlePermanentDelete(sub.id)}
-                        className="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-all"
+                        className="btn btn-ghost"
+                        style={dangerIconBtn}
+                        title="Permanently Delete"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 size={15} />
                       </button>
-                    </div>
-                  </div>
+                    </td>
+                  </tr>
                 ))}
-              </div>
-            )}
-            
-            {((activeTab === 'submissions' && groupedSubmissions.length === 0) || 
-              (activeTab === 'students' && enrollments.length === 0) ||
-              (activeTab === 'trash' && trashSubmissions.length === 0)) && (
-              <div className="glass-panel p-20 rounded-[3rem] border border-white/5 flex flex-col items-center text-center">
-                <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-8">
-                  <Search className="w-8 h-8 text-white/10" />
-                </div>
-                <h3 className="text-2xl font-black mb-2 opacity-60">Null Repository</h3>
-                <p className="text-white/20 text-sm max-w-xs font-bold uppercase tracking-widest">No matching datasets were discovered in the current scope.</p>
-              </div>
-            )}
+              </tbody>
+            </table>
+          ) : null
+        )}
+
+        {isEmpty && (
+          <div className="card elev-sm" style={{ padding: 'var(--space-8)', alignItems: 'center', textAlign: 'center' }}>
+            <Search size={28} style={{ opacity: 0.3, margin: '0 auto var(--space-3)' }} />
+            <h3 style={{ marginBottom: 4 }}>No records found</h3>
+            <p className="text-muted" style={{ margin: 0 }}>No matching datasets were discovered in the current scope.</p>
           </div>
-        </div>
+        )}
       </main>
     </div>
   );

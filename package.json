@@ -6,9 +6,13 @@
   "scripts": {
     "dev:student": "cd student && npm run dev",
     "dev:lecturer": "cd lecturer && npm run dev -- --port 5174",
+    "dev:admin": "cd admin && npm run dev -- --port 5175",
+    "dev:institution-admin": "cd institution-admin && npm run dev -- --port 5176",
     "build:student": "cd student && npm run build",
     "build:lecturer": "cd lecturer && npm run build",
-    "build:all": "npm run build:student && npm run build:lecturer",
+    "build:admin": "cd admin && npm run build",
+    "build:institution-admin": "cd institution-admin && npm run build",
+    "build:all": "npm run build:student && npm run build:lecturer && npm run build:admin && npm run build:institution-admin",
     "deploy": "npm run build:all && firebase deploy --only hosting"
   },
   "dependencies": {

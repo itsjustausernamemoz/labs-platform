@@ -17,53 +17,44 @@ const TabGuard: React.FC<TabGuardProps> = ({
   violationType = 'blur',
   onDismiss,
 }) => {
-  console.log('TabGuard rendering. showWarning:', showWarning, 'count:', violationCount, '/', maxViolations);
   if (!showWarning) return null;
 
   const isCursorExit = violationType === 'cursor_exit';
+  const remaining = Math.max(0, maxViolations - violationCount);
+  const pct = maxViolations > 0 ? (remaining / maxViolations) * 100 : 0;
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-primary/90 flex items-center justify-center p-6 backdrop-blur-md">
-      <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-[0_0_50px_rgba(239,68,68,0.3)] border border-red-500/20 animate-in zoom-in-95 duration-300">
-        <div className="flex items-center gap-4 mb-4 text-red-600">
-          {isCursorExit ? (
-            <MousePointer className="w-8 h-8" />
-          ) : (
-            <AlertTriangle className="w-8 h-8" />
-          )}
-          <h2 className="text-2xl font-bold">Security Violation</h2>
+    <div className="dialog-backdrop" style={{ zIndex: 9999 }}>
+      <div className="dialog" style={{ maxWidth: 440, borderLeft: '3px solid var(--color-accent-700)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: 'var(--color-accent-700)' }}>
+          {isCursorExit ? <MousePointer size={28} /> : <AlertTriangle size={28} />}
+          <div className="dialog-title">Security violation</div>
         </div>
-        <p className="mb-6 text-gray-700">
+        <p className="dialog-body">
           {isCursorExit
             ? 'Your cursor moved outside the exam screen. Keep your cursor within the exam window at all times during the examination.'
             : 'We detected that you switched tabs or minimized the exam window. This is a violation of the exam policy.'}
         </p>
-        <div className="bg-red-50 p-6 rounded-2xl mb-8 border border-red-100">
-          <div className="flex justify-between items-end mb-4">
+        <div className="card" style={{ background: 'var(--color-accent-100)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
             <div>
-              <p className="text-xs font-bold text-red-500 uppercase tracking-widest mb-1">Status</p>
-              <p className="text-xl font-black text-red-700">Violation Detected</p>
+              <p className="card-kicker" style={{ marginBottom: 4 }}>Status</p>
+              <p style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18, color: 'var(--color-accent-800)', margin: 0 }}>Violation detected</p>
             </div>
-            <div className="text-right">
-              <p className="text-xs font-bold text-red-500 uppercase tracking-widest mb-1">Remaining</p>
-              <p className="text-xl font-black text-red-700">{Math.max(0, maxViolations - violationCount)} / {maxViolations}</p>
+            <div style={{ textAlign: 'right' }}>
+              <p className="card-kicker" style={{ marginBottom: 4 }}>Remaining</p>
+              <p style={{ fontFamily: 'var(--font-heading)', fontWeight: 800, fontSize: 18, color: 'var(--color-accent-800)', margin: 0 }}>{remaining} / {maxViolations}</p>
             </div>
           </div>
-          <div className="h-2 w-full bg-red-100 rounded-full overflow-hidden mb-4">
-            <div
-              className="h-full bg-red-500 transition-all duration-500"
-              style={{ width: `${((maxViolations - violationCount) / maxViolations) * 100}%` }}
-            />
+          <div style={{ height: 6, width: '100%', background: 'var(--color-accent-200)', marginTop: 12 }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: 'var(--color-accent-700)' }} />
           </div>
-          <p className="text-sm text-red-600 font-medium text-center">
-            Clicking &quot;I Understand&quot; will deduct one violation credit.
+          <p style={{ fontSize: 12, color: 'var(--color-accent-800)', textAlign: 'center', margin: 'var(--space-2) 0 0' }}>
+            Clicking &quot;I understand&quot; will deduct one violation credit.
           </p>
         </div>
-        <button
-          onClick={onDismiss}
-          className="w-full py-3 bg-primary text-white font-bold rounded-lg hover:bg-primary/90 transition-colors"
-        >
-          I Understand
+        <button onClick={onDismiss} className="btn btn-primary btn-block" style={{ justifyContent: 'center', padding: 'var(--space-3)' }}>
+          I understand
         </button>
       </div>
     </div>
@@ -71,4 +62,3 @@ const TabGuard: React.FC<TabGuardProps> = ({
 };
 
 export default TabGuard;
-
