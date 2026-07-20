@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  body { margin: 0; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 var(--space-6); }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+  .barchart { display: flex; align-items: flex-end; gap: var(--space-3); height: 160px; padding-top: var(--space-4); }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+  .bar { width: 100%; background: var(--color-accent); }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div class="wrap" style="display:flex;align-items:center;width:100%;">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs
+    </div>
+    <a href="./LecturerDashboard.dc.html" style="margin-left:auto;font-size:13px;display:flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg> Back to dashboard</a>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <span class="tag tag-neutral">Data Structures — Midterm</span>
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:var(--space-4);">
+    <h1 style="margin-top:var(--space-2);">Results &amp; analytics</h1>
+    <div style="display:flex;gap:var(--space-2);">
+      <button class="btn btn-secondary">Export CSV</button>
+      <a href="./SubmissionReview.dc.html" class="btn btn-primary">Go to grading</a>
+    </div>
+  </div>
+
+  <div class="stat-grid" style="margin:var(--space-6) 0;">
+    <div class="card elev-sm"><span class="card-kicker">Submissions</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">42</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Average</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">74%</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Median</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">76%</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Pass rate</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">88%</span></div>
+  </div>
+
+  <h3>Score distribution</h3>
+  <div class="barchart" style="margin-bottom:var(--space-8);">
+    <sc-for list="{{ buckets }}" as="b" hint-placeholder-count="5">
+      <div class="bar-col">
+        <span style="font-size:11px;font-weight:800;">{{ b.count }}</span>
+        <div class="bar" style="height:{{ b.pct }}%;"></div>
+        <span class="text-muted" style="font-size:11px;">{{ b.label }}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-6);">
+    <div>
+      <h3>Top performers</h3>
+      <table class="table">
+        <thead><tr><th>Student</th><th>Score</th></tr></thead>
+        <tbody>
+          <sc-for list="{{ top }}" as="t" hint-placeholder-count="3">
+            <tr><td style="font-weight:700;">{{ t.name }}</td><td style="font-weight:800;">{{ t.score }}%</td></tr>
+          </sc-for>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3>Needs attention</h3>
+      <table class="table">
+        <thead><tr><th>Student</th><th>Score</th></tr></thead>
+        <tbody>
+          <sc-for list="{{ low }}" as="t" hint-placeholder-count="3">
+            <tr><td style="font-weight:700;">{{ t.name }}</td><td style="font-weight:800;color:var(--color-accent-700);">{{ t.score }}%</td></tr>
+          </sc-for>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const bucketsRaw = [
+      { label: '0-59', count: 3 }, { label: '60-69', count: 5 }, { label: '70-79', count: 14 },
+      { label: '80-89', count: 13 }, { label: '90-100', count: 7 },
+    ];
+    const max = Math.max(...bucketsRaw.map((b) => b.count));
+    const buckets = bucketsRaw.map((b) => ({ ...b, pct: Math.round((b.count / max) * 100) }));
+    return {
+      buckets,
+      top: [
+        { name: 'A. Nkemdirim', score: 96 },
+        { name: 'F. Bello', score: 93 },
+        { name: 'R. Diallo', score: 91 },
+      ],
+      low: [
+        { name: 'T. Osei', score: 42 },
+        { name: 'S. Achebe', score: 51 },
+        { name: 'K. Mensah', score: 55 },
+      ],
+    };
+  }
+}
+
+</script>
+</body>
+</html>

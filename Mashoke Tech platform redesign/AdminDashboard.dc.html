@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  body { margin: 0; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--space-6); }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+  .tag-status { padding: 3px 10px; font-size: 11px; font-weight: 700; }
+  .tag-status.active { background: var(--color-accent-2-100); color: var(--color-accent-2-800); }
+  .tag-status.suspended { background: var(--color-neutral-200); color: var(--color-neutral-700); }
+  .seatbar { height: 5px; background: var(--color-neutral-200); margin-top: 3px; }
+  .seatbar > div { height: 100%; background: var(--color-accent); }
+  .tabbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-6); }
+  .tabbar a { padding: 9px 16px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--color-divider); }
+  .tabbar a.active { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) { .top-actions { flex-direction: column; align-items: stretch !important; } }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div class="wrap" style="display:flex;align-items:center;width:100%;">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs <span class="tag tag-outline" style="margin-left:4px;">Platform Admin</span>
+    </div>
+    <div style="margin-left:auto;">
+      <a href="./AdminLogin.dc.html" class="btn btn-icon btn-secondary" title="Log out"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></a>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <div class="top-actions" style="display:flex;justify-content:space-between;align-items:flex-end;gap:var(--space-6);flex-wrap:wrap;margin-bottom:var(--space-4);">
+    <div>
+      <h1>Institutions</h1>
+      <p class="text-muted">Manage every institution on Mashoke Labs, their seats, and their standing.</p>
+    </div>
+    <button class="btn btn-primary" onclick="{{ openCreate }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Add institution</button>
+  </div>
+
+  <div class="tabbar">
+    <a href="./AdminOverview.dc.html">Overview</a>
+    <a href="./AdminDashboard.dc.html" class="active">Institutions</a>
+    <a href="./AdminUsers.dc.html">Users</a>
+    <a href="./AdminBilling.dc.html">Billing &amp; revenue</a>
+    <a href="./AdminSupport.dc.html">Support</a>
+    <a href="./AdminAuditLog.dc.html">Audit log</a>
+    <a href="./AdminSettings.dc.html">Settings</a>
+  </div>
+
+  <div class="stat-grid" style="margin-bottom:var(--space-6);">
+    <div class="card elev-sm"><span class="card-kicker">Institutions</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.total }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Lecturer seats used</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.lecturers }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Student seats used</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.students }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Suspended</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;color:var(--color-accent-700);">{{ stats.suspended }}</span></div>
+  </div>
+
+  <table class="table">
+    <thead><tr><th>Institution</th><th>Plan</th><th>Lecturer seats</th><th>Student seats</th><th>Status</th><th>Joined</th><th></th></tr></thead>
+    <tbody>
+      <sc-for list="{{ institutions }}" as="inst" hint-placeholder-count="5">
+        <tr>
+          <td>
+            <div style="font-weight:700;">{{ inst.name }}</div>
+            <div class="text-muted" style="font-size:11px;">{{ inst.contact }}</div>
+          </td>
+          <td><span class="tag {{ inst.planTagClass }}">{{ inst.plan }}</span></td>
+          <td style="min-width:120px;">
+            <span style="font-size:12px;">{{ inst.lecturers }} / {{ inst.lecturerLimit }}</span>
+            <div class="seatbar"><div style="width:{{ inst.lecturerPct }}%;"></div></div>
+          </td>
+          <td style="min-width:120px;">
+            <span style="font-size:12px;">{{ inst.students }} / {{ inst.studentLimit }}</span>
+            <div class="seatbar"><div style="width:{{ inst.studentPct }}%;"></div></div>
+          </td>
+          <td><span class="tag-status {{ inst.statusCls }}">{{ inst.statusLabel }}</span></td>
+          <td class="text-muted">{{ inst.joined }}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="btn btn-ghost" style="padding:4px;" title="View details" onclick="{{ inst.viewDetails }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+            <button class="btn btn-ghost" style="padding:4px;" title="Manage seats" onclick="{{ inst.manageSeats }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button>
+            <button class="btn btn-ghost" style="padding:4px;{{ inst.suspendColor }}" title="{{ inst.suspendTitle }}" onclick="{{ inst.toggleStatus }}">
+              <sc-if value="{{ inst.isActive }}" hint-placeholder-val="{{ true }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg></sc-if>
+              <sc-if value="{{ inst.isSuspended }}" hint-placeholder-val="{{ false }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg></sc-if>
+            </button>
+            <button class="btn btn-ghost" style="padding:4px;color:var(--color-accent-700);" title="Remove" onclick="{{ inst.remove }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
+          </td>
+        </tr>
+      </sc-for>
+    </tbody>
+  </table>
+</main>
+
+<sc-if value="{{ showCreate }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeCreate }}">
+    <div class="dialog" style="max-width:480px;" onclick="{{ stop }}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div class="dialog-title">Add institution</div>
+        <button class="btn btn-icon" onclick="{{ closeCreate }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+      <div class="field"><label>Institution name</label><input class="input" placeholder="e.g. Lagoon State University"/></div>
+      <div class="field"><label>Primary contact email</label><input class="input" type="email" placeholder="admissions@university.edu"/></div>
+      <div class="field">
+        <label>Plan</label>
+        <select class="input">
+          <option>Trial</option>
+          <option>Standard</option>
+          <option>Enterprise</option>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);">
+        <div class="field"><label>Lecturer seats</label><input class="input" type="number" value="20"/></div>
+        <div class="field"><label>Student seats</label><input class="input" type="number" value="1000"/></div>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="{{ closeCreate }}">Cancel</button>
+        <button class="btn btn-primary" onclick="{{ closeCreate }}">Add institution</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ seatsTarget }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeSeats }}">
+    <div class="dialog" style="max-width:420px;" onclick="{{ stop }}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div class="dialog-title">Manage seats</div>
+          <p class="text-muted" style="font-size:12px;margin:2px 0 0;">{{ seatsTarget.name }}</p>
+        </div>
+        <button class="btn btn-icon" onclick="{{ closeSeats }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+      <div class="field">
+        <label>Lecturer / teacher seats ({{ seatsTarget.lecturers }} in use)</label>
+        <input class="input" type="number" value="{{ seatsDraft.lecturerLimit }}" oninput="{{ onLecturerLimitChange }}" min="{{ seatsTarget.lecturers }}"/>
+      </div>
+      <div class="field">
+        <label>Student seats ({{ seatsTarget.students }} in use)</label>
+        <input class="input" type="number" value="{{ seatsDraft.studentLimit }}" oninput="{{ onStudentLimitChange }}" min="{{ seatsTarget.students }}"/>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="{{ closeSeats }}">Cancel</button>
+        <button class="btn btn-primary" onclick="{{ saveSeats }}">Save seat limits</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ detailsTarget }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeDetails }}">
+    <div class="dialog" style="max-width:480px;" onclick="{{ stop }}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div class="dialog-title">{{ detailsTarget.name }}</div>
+        <button class="btn btn-icon" onclick="{{ closeDetails }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+      <div class="dialog-body" style="display:flex;flex-direction:column;gap:var(--space-2);">
+        <div><span class="text-muted">Contact:</span> {{ detailsTarget.contact }}</div>
+        <div><span class="text-muted">Plan:</span> <span class="tag {{ detailsTarget.planTagClass }}">{{ detailsTarget.plan }}</span></div>
+        <div><span class="text-muted">Status:</span> <span class="tag-status {{ detailsTarget.statusCls }}">{{ detailsTarget.statusLabel }}</span></div>
+        <div><span class="text-muted">Joined:</span> {{ detailsTarget.joined }}</div>
+        <div class="hr"></div>
+        <div><span class="text-muted">Lecturers:</span> {{ detailsTarget.lecturers }} / {{ detailsTarget.lecturerLimit }} seats</div>
+        <div><span class="text-muted">Students:</span> {{ detailsTarget.students }} / {{ detailsTarget.studentLimit }} seats</div>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="{{ closeDetails }}">Close</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    showCreate: false,
+    seatsIndex: null,
+    detailsIndex: null,
+    seatsDraft: { lecturerLimit: 0, studentLimit: 0 },
+    institutions: [
+      { name: 'Lagoon State University', contact: 'admissions@lsu.edu', plan: 'Enterprise', planTagClass: 'tag-accent', lecturers: 84, lecturerLimit: 100, students: 6200, studentLimit: 8000, active: true, joined: 'Mar 2025' },
+      { name: 'Northbridge Polytechnic', contact: 'it@northbridge.ac', plan: 'Standard', planTagClass: 'tag-neutral', lecturers: 22, lecturerLimit: 30, students: 1450, studentLimit: 2000, active: true, joined: 'Jan 2026' },
+      { name: 'Delta Coding Academy', contact: 'ops@deltacoding.io', plan: 'Trial', planTagClass: 'tag-outline', lecturers: 4, lecturerLimit: 10, students: 90, studentLimit: 150, active: true, joined: 'Jun 2026' },
+      { name: 'Ridgeway College', contact: 'registrar@ridgeway.edu', plan: 'Standard', planTagClass: 'tag-neutral', lecturers: 15, lecturerLimit: 25, students: 980, studentLimit: 1500, active: false, joined: 'Nov 2025' },
+      { name: 'Summit Institute of Tech', contact: 'admin@summit-it.edu', plan: 'Enterprise', planTagClass: 'tag-accent', lecturers: 61, lecturerLimit: 80, students: 4100, studentLimit: 5000, active: true, joined: 'Aug 2025' },
+    ],
+  };
+  openCreate = () => this.setState({ showCreate: true });
+  closeCreate = () => this.setState({ showCreate: false });
+  stop = (e) => e.stopPropagation();
+  toggleStatus = (i) => this.setState((s) => {
+    const institutions = s.institutions.slice();
+    institutions[i] = { ...institutions[i], active: !institutions[i].active };
+    return { institutions };
+  });
+  removeInst = (i) => this.setState((s) => ({ institutions: s.institutions.filter((_, idx) => idx !== i) }));
+  viewDetails = (i) => this.setState({ detailsIndex: i });
+  closeDetails = () => this.setState({ detailsIndex: null });
+  openSeats = (i) => this.setState((s) => ({ seatsIndex: i, seatsDraft: { lecturerLimit: s.institutions[i].lecturerLimit, studentLimit: s.institutions[i].studentLimit } }));
+  closeSeats = () => this.setState({ seatsIndex: null });
+  onLecturerLimitChange = (e) => this.setState((s) => ({ seatsDraft: { ...s.seatsDraft, lecturerLimit: parseInt(e.target.value) || 0 } }));
+  onStudentLimitChange = (e) => this.setState((s) => ({ seatsDraft: { ...s.seatsDraft, studentLimit: parseInt(e.target.value) || 0 } }));
+  saveSeats = () => this.setState((s) => {
+    const institutions = s.institutions.slice();
+    institutions[s.seatsIndex] = { ...institutions[s.seatsIndex], lecturerLimit: s.seatsDraft.lecturerLimit, studentLimit: s.seatsDraft.studentLimit };
+    return { institutions, seatsIndex: null };
+  });
+  renderVals() {
+    const s = this.state;
+    const institutions = s.institutions.map((inst, i) => ({
+      name: inst.name, contact: inst.contact, plan: inst.plan, planTagClass: inst.planTagClass,
+      lecturers: inst.lecturers, lecturerLimit: inst.lecturerLimit, lecturerPct: Math.min(100, Math.round((inst.lecturers / inst.lecturerLimit) * 100)),
+      students: inst.students, studentLimit: inst.studentLimit, studentPct: Math.min(100, Math.round((inst.students / inst.studentLimit) * 100)),
+      joined: inst.joined,
+      statusLabel: inst.active ? 'Active' : 'Suspended',
+      statusCls: inst.active ? 'active' : 'suspended',
+      isActive: inst.active, isSuspended: !inst.active,
+      suspendTitle: inst.active ? 'Suspend institution' : 'Reactivate institution',
+      suspendColor: inst.active ? 'color:var(--color-accent-700);' : 'color:var(--color-accent-2-700);',
+      toggleStatus: () => this.toggleStatus(i),
+      remove: () => this.removeInst(i),
+      manageSeats: () => this.openSeats(i),
+      viewDetails: () => this.viewDetails(i),
+    }));
+    return {
+      institutions,
+      stats: {
+        total: s.institutions.length,
+        lecturers: s.institutions.reduce((a, i) => a + i.lecturers, 0),
+        students: s.institutions.reduce((a, i) => a + i.students, 0),
+        suspended: s.institutions.filter((i) => !i.active).length,
+      },
+      showCreate: s.showCreate,
+      openCreate: this.openCreate, closeCreate: this.closeCreate, stop: this.stop,
+      seatsTarget: s.seatsIndex === null ? null : s.institutions[s.seatsIndex],
+      seatsDraft: s.seatsDraft,
+      closeSeats: this.closeSeats, saveSeats: this.saveSeats,
+      onLecturerLimitChange: this.onLecturerLimitChange, onStudentLimitChange: this.onStudentLimitChange,
+      detailsTarget: s.detailsIndex === null ? null : institutions[s.detailsIndex],
+      closeDetails: this.closeDetails,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

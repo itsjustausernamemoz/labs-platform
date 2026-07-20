@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  body { margin: 0; height: 100vh; overflow: hidden; }
+  .layout { display: grid; grid-template-columns: 280px 1fr; height: calc(100vh - 57px); }
+  .srow { display: block; width: 100%; text-align: left; padding: 12px 14px; border: none; background: transparent; border-bottom: 1px solid var(--color-divider); cursor: pointer; }
+  .srow:hover { background: var(--color-neutral-100); }
+  .srow.active { background: var(--color-accent-100); border-left: 3px solid var(--color-accent); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div style="display:flex;align-items:center;width:100%;padding:0 var(--space-4);">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs
+    </div>
+    <a href="./LecturerDashboard.dc.html" style="margin-left:auto;font-size:13px;display:flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg> Back to dashboard</a>
+  </div>
+</nav>
+
+<div class="layout">
+  <aside style="border-right:2px solid var(--color-divider);overflow:auto;">
+    <div style="padding:var(--space-3) var(--space-3) var(--space-2);border-bottom:2px solid var(--color-divider);">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--color-accent-700);font-weight:800;">Data Structures — Midterm</div>
+      <div class="text-muted" style="font-size:11px;">{{ ungraded }} ungraded of {{ total }}</div>
+      <button class="btn btn-primary btn-block" style="justify-content:center;margin-top:var(--space-2);" onclick="{{ aiGradeAll }}" disabled="{{ isAiGrading }}">
+        <sc-if value="{{ isAiGrading }}" hint-placeholder-val="{{ false }}">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Grading with AI…
+        </sc-if>
+        <sc-if value="{{ notAiGrading }}" hint-placeholder-val="{{ true }}">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path></svg> Mark all with AI
+        </sc-if>
+      </button>
+    </div>
+    <sc-for list="{{ submissions }}" as="s" hint-placeholder-count="6">
+      <button class="srow {{ s.cls }}" onclick="{{ s.select }}">
+        <div style="display:flex;justify-content:space-between;">
+          <span style="font-weight:700;font-size:13px;">{{ s.student }}</span>
+          <span class="tag {{ s.tagClass }}" style="font-size:10px;">{{ s.statusLabel }}</span>
+        </div>
+        <div class="text-muted" style="font-size:11px;margin-top:2px;">{{ s.date }}</div>
+      </button>
+    </sc-for>
+  </aside>
+
+  <div style="overflow:auto;padding:var(--space-6) var(--space-8);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--space-6);">
+      <div>
+        <h2 style="margin-bottom:2px;">{{ current.student }}</h2>
+        <p class="text-muted" style="font-size:13px;">Submitted {{ current.date }} &middot; ID {{ current.id }}</p>
+      </div>
+      <div style="text-align:right;">
+        <div class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;">Running total</div>
+        <div style="font-family:var(--font-heading);font-weight:800;font-size:28px;">{{ runningTotal }} <span style="font-size:16px;" class="text-muted">/ 100</span></div>
+      </div>
+    </div>
+
+    <sc-if value="{{ aiNotice }}" hint-placeholder-val="{{ false }}">
+      <div class="card" style="background:var(--color-accent-100);border:1px solid var(--color-accent-300);margin-bottom:var(--space-4);">
+        <span style="font-size:13px;color:var(--color-accent-800);"><strong>AI-suggested marks applied.</strong> {{ aiNotice }} Review each answer below and adjust before finalizing.</span>
+      </div>
+    </sc-if>
+
+    <sc-for list="{{ questions }}" as="q" hint-placeholder-count="3">
+      <div class="card elev-sm" style="margin-bottom:var(--space-4);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <span class="card-kicker">Question {{ q.n }} &middot; {{ q.type }}</span>
+          <span class="tag tag-outline">{{ q.maxMarks }} marks max</span>
+        </div>
+        <p style="font-size:14px;margin:0;">{{ q.prompt }}</p>
+        <div class="hr" style="margin:8px 0;"></div>
+        <div class="text-muted" style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Student answer</div>
+        <pre style="margin:0 0 var(--space-3);font-family:ui-monospace,monospace;font-size:13px;background:var(--color-neutral-100);padding:var(--space-2) var(--space-3);white-space:pre-wrap;">{{ q.answer }}</pre>
+        <div style="display:flex;gap:var(--space-4);align-items:flex-end;">
+          <div class="field" style="width:110px;">
+            <label>Marks awarded</label>
+            <input class="input" type="number" value="{{ q.marks }}" oninput="{{ q.onMarksChange }}" max="{{ q.maxMarks }}" min="0"/>
+          </div>
+          <div class="field" style="flex:1;">
+            <label>Feedback (optional)</label>
+            <input class="input" placeholder="Add a note for the student" value="{{ q.feedback }}" oninput="{{ q.onFeedbackChange }}"/>
+          </div>
+        </div>
+      </div>
+    </sc-for>
+
+    <div style="display:flex;justify-content:flex-end;gap:var(--space-2);margin-top:var(--space-6);">
+      <button class="btn btn-secondary">Save draft</button>
+      <button class="btn btn-primary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Finalize grade</button>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    activeIndex: 0,
+    isAiGrading: false,
+    aiNotice: '',
+    submissions: [
+      { student: 'A. Nkemdirim (20240147)', date: 'Jul 15', status: 'ungraded' },
+      { student: 'T. Osei (20240092)', date: 'Jul 15', status: 'ungraded' },
+      { student: 'F. Bello (20240210)', date: 'Jul 14', status: 'graded' },
+      { student: 'S. Achebe (20240033)', date: 'Jul 14', status: 'ungraded' },
+      { student: 'R. Diallo (20240178)', date: 'Jul 13', status: 'graded' },
+    ],
+    questions: [
+      { n: 2, type: 'Structured', maxMarks: 20, prompt: 'Explain hash collisions and two resolution strategies.', answer: 'Collisions occur when two keys hash to the same bucket. Chaining stores a linked list per bucket; open addressing probes for the next free slot (linear/quadratic probing, double hashing).', marks: 18, feedback: '' },
+      { n: 5, type: 'Structured', maxMarks: 45, prompt: 'Design an LRU cache and justify your data structure choices.', answer: 'Use a hash map for O(1) lookup combined with a doubly linked list to track recency. On access, move node to head; on capacity overflow, evict the tail.', marks: 40, feedback: 'Good — mention thread safety next time.' },
+    ],
+  };
+  select = (i) => this.setState({ activeIndex: i });
+  aiGradeAll = () => {
+    this.setState({ isAiGrading: true });
+    setTimeout(() => {
+      this.setState((s) => ({
+        isAiGrading: false,
+        aiNotice: `Graded ${s.submissions.length} submissions across ${s.questions.length} open questions.`,
+        submissions: s.submissions.map((sub) => ({ ...sub, status: 'graded' })),
+        questions: s.questions.map((q) => ({ ...q, marks: Math.max(0, q.maxMarks - Math.round(q.maxMarks * 0.08)) })),
+      }));
+    }, 1200);
+  };
+  onMarksChange = (i, e) => this.setState((s) => {
+    const questions = s.questions.slice();
+    questions[i] = { ...questions[i], marks: parseInt(e.target.value) || 0 };
+    return { questions };
+  });
+  onFeedbackChange = (i, e) => this.setState((s) => {
+    const questions = s.questions.slice();
+    questions[i] = { ...questions[i], feedback: e.target.value };
+    return { questions };
+  });
+  renderVals() {
+    const s = this.state;
+    const submissions = s.submissions.map((sub, i) => ({
+      student: sub.student, date: sub.date,
+      statusLabel: sub.status === 'graded' ? 'Graded' : 'Ungraded',
+      tagClass: sub.status === 'graded' ? 'tag-neutral' : 'tag-accent',
+      cls: i === s.activeIndex ? 'active' : '',
+      select: () => this.select(i),
+    }));
+    const questions = s.questions.map((q, i) => ({
+      ...q, onMarksChange: (e) => this.onMarksChange(i, e), onFeedbackChange: (e) => this.onFeedbackChange(i, e),
+    }));
+    const runningTotal = s.questions.reduce((a, q) => a + q.marks, 0);
+    return {
+      submissions, questions,
+      current: { student: s.submissions[s.activeIndex].student, date: s.submissions[s.activeIndex].date, id: '20240147' },
+      runningTotal,
+      ungraded: s.submissions.filter((x) => x.status === 'ungraded').length,
+      total: s.submissions.length,
+      isAiGrading: s.isAiGrading,
+      notAiGrading: !s.isAiGrading,
+      aiNotice: s.aiNotice,
+      aiGradeAll: this.aiGradeAll,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

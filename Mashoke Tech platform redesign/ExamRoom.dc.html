@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  body { margin: 0; height: 100vh; overflow: hidden; }
+  .room { display: grid; grid-template-columns: 220px 1fr; height: 100vh; }
+  .qbtn { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 10px 12px; font-size: 13px; border: none; background: transparent; cursor: pointer; border-left: 3px solid transparent; }
+  .qbtn:hover { background: var(--color-neutral-100); }
+  .qbtn.active { background: var(--color-accent-100); border-left-color: var(--color-accent); font-weight: 700; }
+  .qnum { width: 20px; height: 20px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; background: var(--color-neutral-200); }
+  .qbtn.active .qnum { background: var(--color-accent); color: var(--color-bg); }
+  .qbtn.done .qnum { background: var(--color-neutral-800); color: var(--color-bg); }
+  code, textarea.code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13.5px; line-height: 1.6; }
+  .opt { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--color-divider); cursor: pointer; margin-bottom: var(--space-2); }
+  .opt:hover { background: var(--color-neutral-100); }
+  .opt.selected { background: var(--color-accent-100); border-color: var(--color-accent); }
+  .opt .dot { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--color-divider); flex: none; }
+  .opt.selected .dot { border-color: var(--color-accent); background: var(--color-accent); box-shadow: inset 0 0 0 3px var(--color-bg); }
+</style>
+</helmet>
+
+<div class="room">
+  <aside style="border-right:2px solid var(--color-divider);display:flex;flex-direction:column;overflow:auto;">
+    <div style="padding:var(--space-3) var(--space-3) var(--space-2);border-bottom:2px solid var(--color-divider);">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:20px;height:20px;object-fit:contain;"/>
+        <span style="font-size:11px;font-weight:800;">Mashoke Labs</span>
+      </div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--color-accent);font-weight:800;">Kotlin Fundamentals Lab</div>
+      <div style="font-size:11px;" class="text-muted">6 questions &middot; 50 marks</div>
+    </div>
+    <sc-for list="{{ questions }}" as="q" hint-placeholder-count="6">
+      <button class="qbtn {{ q.cls }}" onclick="{{ q.select }}">
+        <span class="qnum">{{ q.index }}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ q.label }}</span>
+        <sc-if value="{{ q.isDone }}" hint-placeholder-val="{{ false }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></sc-if>
+      </button>
+    </sc-for>
+    <div style="margin-top:auto;padding:var(--space-3);border-top:2px solid var(--color-divider);">
+      <div class="text-muted" style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;">Progress &middot; {{ answeredCount }}/6</div>
+      <div style="height:6px;background:var(--color-neutral-200);margin-top:6px;"><div style="height:100%;width:{{ progressPct }}%;background:var(--color-accent);"></div></div>
+    </div>
+  </aside>
+
+  <div style="display:flex;flex-direction:column;height:100vh;overflow:hidden;">
+    <div style="display:flex;align-items:center;gap:var(--space-4);padding:var(--space-2) var(--space-4);border-bottom:2px solid var(--color-divider);">
+      <div style="font-family:var(--font-heading);font-weight:800;font-size:14px;">Question {{ current.index }} of 6</div>
+      <span class="tag tag-accent">{{ current.typeLabel }}</span>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:var(--space-4);">
+        <div style="display:flex;align-items:center;gap:6px;font-family:var(--font-heading);font-weight:800;font-size:16px;color:var(--color-accent-700);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> {{ timeLeft }}
+        </div>
+        <button class="btn btn-primary" onclick="{{ openSubmit }}">Submit exam</button>
+      </div>
+    </div>
+
+    <div style="flex:1;display:grid;grid-template-rows:auto 1fr;overflow:hidden;">
+      <div style="padding:var(--space-4);border-bottom:2px solid var(--color-divider);overflow:auto;max-height:180px;">
+        <p style="margin:0;font-size:14.5px;">{{ current.prompt }}</p>
+      </div>
+
+      <sc-if value="{{ isMcq }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:var(--space-6);overflow:auto;max-width:640px;">
+          <sc-for list="{{ current.options }}" as="opt" hint-placeholder-count="4">
+            <div class="opt {{ opt.cls }}" onclick="{{ opt.select }}">
+              <span class="dot"></span>
+              <span style="font-size:14px;">{{ opt.text }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isStructured }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:var(--space-6);overflow:auto;">
+          <textarea class="input" rows="10" placeholder="Write your answer…" value="{{ current.answer }}" oninput="{{ onStructuredChange }}" style="font-size:14px;"></textarea>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isCoding }}" hint-placeholder-val="{{ true }}">
+        <div style="display:grid;grid-template-rows:1fr 160px;overflow:hidden;">
+          <div style="position:relative;overflow:auto;background:var(--color-neutral-100);">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) var(--space-4);border-bottom:1px solid var(--color-divider);background:var(--color-bg);">
+              <span style="font-size:12px;font-weight:800;border-bottom:2px solid var(--color-accent);padding-bottom:6px;">Main.kt</span>
+              <button class="btn btn-primary" style="padding:6px 16px;" onclick="{{ run }}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg> Run
+              </button>
+            </div>
+            <textarea class="input code" style="border:none;border-radius:0;min-height:260px;height:100%;background:transparent;padding:var(--space-4);" value="{{ current.code }}" oninput="{{ onCodeChange }}"></textarea>
+          </div>
+          <div style="border-top:2px solid var(--color-divider);background:var(--color-neutral-900);color:var(--color-neutral-100);overflow:auto;padding:var(--space-3) var(--space-4);">
+            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--color-neutral-500);margin-bottom:6px;">Console</div>
+            <pre class="code" style="margin:0;white-space:pre-wrap;color:inherit;">{{ consoleOutput }}</pre>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+
+<sc-if value="{{ showSubmit }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeSubmit }}">
+    <div class="dialog" style="max-width:420px;" onclick="{{ stop }}">
+      <div class="dialog-title">Submit examination?</div>
+      <p class="dialog-body">You've answered {{ answeredCount }} of 6 questions. Once submitted, you cannot make further changes.</p>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="{{ closeSubmit }}">Keep working</button>
+        <button class="btn btn-primary" onclick="{{ confirmSubmit }}">Submit</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    activeIndex: 2,
+    timeLeft: '42:18',
+    showSubmit: false,
+    consoleOutput: 'Ready. Press Run to compile and execute.',
+    answers: {
+      0: 'O(n log n)',
+      1: 'Collisions occur when two keys hash to the same bucket. Chaining stores a linked list per bucket; open addressing probes for the next free slot.',
+    },
+    codes: {
+      2: 'fun main() {\n    val nums = listOf(4, 2, 7, 1)\n    println(nums.sorted())\n}',
+      3: 'fun main() {\n    // binary search here\n}',
+    },
+  };
+  questionsData = [
+    { label: 'Time complexity of quicksort', type: 'mcq', prompt: 'What is the average-case time complexity of quicksort?', options: ['O(n)', 'O(n log n)', 'O(n^2)', 'O(log n)'] },
+    { label: 'Explain hash collisions', type: 'structured', prompt: 'Explain hash collisions and describe two resolution strategies.' },
+    { label: 'Implement merge sort', type: 'coding', prompt: "Implement `fun mergeSort(list: List<Int>): List<Int>` and print the result of mergeSort(listOf(4, 2, 7, 1))." },
+    { label: 'Binary search on array', type: 'coding', prompt: 'Implement iterative binary search over a sorted IntArray and print the index of a target value, or -1 if absent.' },
+    { label: 'Big-O of nested loops', type: 'mcq', prompt: 'A loop nested inside another loop, each running n times, has what time complexity?', options: ['O(n)', 'O(n log n)', 'O(n^2)', 'O(2^n)'] },
+    { label: 'Design a LRU cache', type: 'structured', prompt: 'Design an LRU cache and justify your data structure choices.' },
+  ];
+  select = (i) => this.setState({ activeIndex: i });
+  onCodeChange = (e) => this.setState((s) => ({ codes: { ...s.codes, [s.activeIndex]: e.target.value } }));
+  onStructuredChange = (e) => this.setState((s) => ({ answers: { ...s.answers, [s.activeIndex]: e.target.value } }));
+  selectOption = (i, opt) => this.setState((s) => ({ answers: { ...s.answers, [i]: opt } }));
+  run = () => this.setState({ consoleOutput: '> Compiling Main.kt...\n> [4, 2, 7, 1].sorted()\n[1, 2, 4, 7]\n\nProcess finished, exit code 0' });
+  openSubmit = () => this.setState({ showSubmit: true });
+  closeSubmit = () => this.setState({ showSubmit: false });
+  stop = (e) => e.stopPropagation();
+  confirmSubmit = () => { window.location.href = './StudentDashboard.dc.html'; };
+  isAnswered = (i) => {
+    const q = this.questionsData[i];
+    if (q.type === 'coding') return !!(this.state.codes[i] && this.state.codes[i].trim());
+    return !!(this.state.answers[i] && this.state.answers[i].trim());
+  };
+  renderVals() {
+    const s = this.state;
+    const typeLabel = { mcq: 'MCQ', structured: 'Structured', coding: 'Coding' };
+    const questions = this.questionsData.map((q, i) => ({
+      index: i + 1, label: q.label, isDone: this.isAnswered(i),
+      cls: [i === s.activeIndex ? 'active' : '', this.isAnswered(i) ? 'done' : ''].join(' ').trim(),
+      select: () => this.select(i),
+    }));
+    const cur = this.questionsData[s.activeIndex];
+    const current = {
+      index: s.activeIndex + 1, typeLabel: typeLabel[cur.type], prompt: cur.prompt,
+      answer: s.answers[s.activeIndex] || '', code: s.codes[s.activeIndex] || '',
+      options: cur.type === 'mcq' ? cur.options.map((opt) => ({
+        text: opt, cls: s.answers[s.activeIndex] === opt ? 'selected' : '', select: () => this.selectOption(s.activeIndex, opt),
+      })) : [],
+    };
+    const answeredCount = this.questionsData.filter((_, i) => this.isAnswered(i)).length;
+    return {
+      questions, current,
+      isMcq: cur.type === 'mcq', isStructured: cur.type === 'structured', isCoding: cur.type === 'coding',
+      onCodeChange: this.onCodeChange, onStructuredChange: this.onStructuredChange,
+      consoleOutput: s.consoleOutput, run: this.run, timeLeft: s.timeLeft,
+      answeredCount, progressPct: Math.round((answeredCount / 6) * 100),
+      showSubmit: s.showSubmit, openSubmit: this.openSubmit, closeSubmit: this.closeSubmit, stop: this.stop, confirmSubmit: this.confirmSubmit,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  body { margin: 0; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 var(--space-6); }
+  .tabbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-6); flex-wrap: wrap; }
+  .tabbar a { padding: 9px 16px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--color-divider); }
+  .tabbar a.active { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) 0; border-bottom: 1px solid var(--color-divider); }
+  .switch { width: 40px; height: 22px; background: var(--color-neutral-300); position: relative; cursor: pointer; border: none; }
+  .switch.on { background: var(--color-accent); }
+  .switch > span { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: var(--color-bg); transition: left 0.15s; }
+  .switch.on > span { left: 20px; }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div style="display:flex;align-items:center;width:100%;padding:0 var(--space-6);">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs <span class="tag tag-outline" style="margin-left:4px;">Platform Admin</span>
+    </div>
+    <div style="margin-left:auto;">
+      <a href="./AdminLogin.dc.html" class="btn btn-icon btn-secondary" title="Log out"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></a>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <h1>Settings</h1>
+  <p class="text-muted" style="margin-bottom:var(--space-4);">Platform-wide plan pricing, feature availability, and announcements.</p>
+
+  <div class="tabbar">
+    <a href="./AdminOverview.dc.html">Overview</a>
+    <a href="./AdminDashboard.dc.html">Institutions</a>
+    <a href="./AdminUsers.dc.html">Users</a>
+    <a href="./AdminBilling.dc.html">Billing &amp; revenue</a>
+    <a href="./AdminSupport.dc.html">Support</a>
+    <a href="./AdminAuditLog.dc.html">Audit log</a>
+    <a href="./AdminSettings.dc.html" class="active">Settings</a>
+  </div>
+
+  <h3>Plan pricing</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-4);margin-bottom:var(--space-6);">
+    <div class="field"><label>Trial ($/mo)</label><input class="input" type="number" value="0"/></div>
+    <div class="field"><label>Standard ($/mo)</label><input class="input" type="number" value="{{ standardPrice }}" oninput="{{ onStandardPrice }}"/></div>
+    <div class="field"><label>Enterprise ($/mo)</label><input class="input" type="number" value="{{ enterprisePrice }}" oninput="{{ onEnterprisePrice }}"/></div>
+  </div>
+
+  <div class="hr"></div>
+  <h3>Feature flags</h3>
+  <sc-for list="{{ flags }}" as="f" hint-placeholder-count="4">
+    <div class="toggle-row">
+      <div>
+        <div style="font-weight:700;font-size:14px;">{{ f.label }}</div>
+        <div class="text-muted" style="font-size:12px;">{{ f.detail }}</div>
+      </div>
+      <button class="switch {{ f.cls }}" onclick="{{ f.toggle }}"><span></span></button>
+    </div>
+  </sc-for>
+
+  <div class="hr"></div>
+  <h3>Platform announcement</h3>
+  <div class="field"><label>Banner message shown to all lecturers &amp; students</label><textarea class="input" rows="2" value="{{ announcement }}" oninput="{{ onAnnouncement }}"></textarea></div>
+  <div class="toggle-row" style="border-bottom:none;">
+    <span style="font-size:13px;font-weight:700;">Publish banner</span>
+    <button class="switch {{ announceCls }}" onclick="{{ toggleAnnounce }}"><span></span></button>
+  </div>
+
+  <button class="btn btn-primary" style="margin-top:var(--space-4);">Save settings</button>
+</main>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    standardPrice: 299,
+    enterprisePrice: 1200,
+    announcement: 'Scheduled maintenance Sunday 2–4am UTC — exams in progress will not be affected.',
+    announcePublished: true,
+    flags: [
+      { label: 'AI-assisted grading', detail: 'Lecturers can mark whole assessments at once with AI', on: true },
+      { label: 'Open-book exam mode', detail: 'Allow lecturers to permit outside resources', on: true },
+      { label: 'In-browser coding sandbox', detail: 'Kotlin compiler environment for coding assessments', on: true },
+      { label: 'Institution self-serve signup', detail: 'New institutions can start a trial without sales contact', on: false },
+    ],
+  };
+  onStandardPrice = (e) => this.setState({ standardPrice: e.target.value });
+  onEnterprisePrice = (e) => this.setState({ enterprisePrice: e.target.value });
+  onAnnouncement = (e) => this.setState({ announcement: e.target.value });
+  toggleAnnounce = () => this.setState((s) => ({ announcePublished: !s.announcePublished }));
+  toggleFlag = (i) => this.setState((s) => {
+    const flags = s.flags.slice();
+    flags[i] = { ...flags[i], on: !flags[i].on };
+    return { flags };
+  });
+  renderVals() {
+    const s = this.state;
+    return {
+      standardPrice: s.standardPrice, onStandardPrice: this.onStandardPrice,
+      enterprisePrice: s.enterprisePrice, onEnterprisePrice: this.onEnterprisePrice,
+      announcement: s.announcement, onAnnouncement: this.onAnnouncement,
+      announceCls: s.announcePublished ? 'on' : '', toggleAnnounce: this.toggleAnnounce,
+      flags: s.flags.map((f, i) => ({ ...f, cls: f.on ? 'on' : '', toggle: () => this.toggleFlag(i) })),
+    };
+  }
+}
+
+</script>
+</body>
+</html>

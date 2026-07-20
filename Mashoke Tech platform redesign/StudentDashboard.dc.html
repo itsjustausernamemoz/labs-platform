@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  a:hover { color: var(--color-accent-700); }
+  body { margin: 0; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 var(--space-6); }
+  .exam-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+  @media (max-width: 900px) { .exam-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) { .exam-grid { grid-template-columns: 1fr; } .top-actions { flex-direction: column; align-items: stretch !important; } }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div class="wrap" style="display:flex;align-items:center;gap:var(--space-4);width:100%;">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:var(--space-4);">
+      <div style="text-align:right;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:color-mix(in srgb, var(--color-text) 50%, transparent);">Signed in</div>
+        <div style="font-size:13px;font-weight:800;">{{ student.number }}</div>
+      </div>
+      <button class="btn btn-icon btn-secondary" title="Log out" onclick="{{ handleLogout }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></button>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <sc-if value="{{ announcement }}" hint-placeholder-val="{{ false }}">
+    <div class="card" style="background:var(--color-accent-100);border:1px solid var(--color-accent-300);margin-bottom:var(--space-6);">
+      <span style="font-size:13px;color:var(--color-accent-800);">{{ announcement }}</span>
+    </div>
+  </sc-if>
+
+  <header class="top-actions" style="display:flex;justify-content:space-between;align-items:flex-end;gap:var(--space-6);margin-bottom:var(--space-8);flex-wrap:wrap;">
+    <div>
+      <h1>Assessments</h1>
+      <p class="text-muted" style="max-width:480px;">Welcome back. Join an exam with your code, or open one you're already enrolled in.</p>
+    </div>
+    <div style="display:flex;gap:var(--space-2);align-items:center;">
+      <a href="./EnvCheck.dc.html" class="btn btn-secondary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg> Check environment</a>
+      <form onsubmit="{{ handleJoin }}" style="display:flex;gap:6px;">
+        <input class="input" placeholder="EXAM CODE" value="{{ joinCode }}" oninput="{{ onJoinChange }}" maxlength="6" style="width:130px;text-transform:uppercase;letter-spacing:0.1em;font-weight:800;"/>
+        <button type="submit" class="btn btn-primary" disabled="{{ joinDisabled }}">Join</button>
+      </form>
+    </div>
+  </header>
+
+  <section style="margin-bottom:var(--space-8);">
+    <h3 style="margin-bottom:var(--space-4);">Active exams</h3>
+    <div class="exam-grid">
+      <sc-for list="{{ exams }}" as="exam" hint-placeholder-count="3">
+        <button onclick="{{ exam.openStart }}" class="card elev-sm" style="text-align:left;cursor:pointer;">
+          <span class="card-kicker">{{ exam.type }}</span>
+          <span class="card-title">{{ exam.title }}</span>
+          <span class="card-meta"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> {{ exam.duration }} min &middot; {{ exam.marks }} marks &middot; Attempt {{ exam.attempt }}</span>
+          <span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--color-accent-700);margin-top:var(--space-2);">Enter exam <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg></span>
+        </button>
+      </sc-for>
+    </div>
+  </section>
+
+  <div class="hr"></div>
+
+  <section style="margin-bottom:var(--space-8);">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:var(--space-3);">
+      <h3>Awaiting grading</h3>
+      <span class="text-muted" style="font-size:12px;">{{ pendingCount }} record(s)</span>
+    </div>
+    <table class="table">
+      <thead><tr><th>Exam</th><th>Submitted</th><th>Status</th></tr></thead>
+      <tbody>
+        <sc-for list="{{ pending }}" as="sub" hint-placeholder-count="1">
+          <tr>
+            <td style="font-weight:600;">{{ sub.title }}</td>
+            <td>{{ sub.date }}</td>
+            <td><span class="tag tag-outline">In progress</span></td>
+          </tr>
+        </sc-for>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:var(--space-3);">
+      <h3>Completed</h3>
+      <span class="text-muted" style="font-size:12px;">{{ completedCount }} record(s)</span>
+    </div>
+    <table class="table">
+      <thead><tr><th>Exam</th><th>Date</th><th>Score</th><th>Marked by</th><th></th></tr></thead>
+      <tbody>
+        <sc-for list="{{ completed }}" as="sub" hint-placeholder-count="2">
+          <tr>
+            <td style="font-weight:600;">{{ sub.title }}</td>
+            <td>{{ sub.date }}</td>
+            <td style="font-weight:800;">{{ sub.pct }}% <span class="text-muted" style="font-weight:400;">({{ sub.score }}/{{ sub.total }})</span></td>
+            <td><span class="tag {{ sub.tagClass }}">{{ sub.markedBy }}</span></td>
+            <td style="text-align:right;"><a href="./StudentResults.dc.html" class="btn btn-ghost" style="padding:0;">Review &rarr;</a></td>
+          </tr>
+        </sc-for>
+      </tbody>
+    </table>
+  </section>
+</main>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
+<sc-if value="{{ startTarget }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeStart }}">
+    <div class="dialog" style="max-width:440px;" onclick="{{ stop }}">
+      <div class="dialog-title">{{ startTarget.title }}</div>
+      <p class="dialog-body">Before you begin: this exam runs in fullscreen and switching tabs is logged. Make sure you've run the environment check.</p>
+      <label class="radio" style="margin-bottom:var(--space-2);">
+        <input type="checkbox" checked="{{ agreed }}" onchange="{{ onAgree }}"/><span class="dot" style="border-radius:4px;"></span>
+        <span>I understand the exam rules and I'm ready to begin.</span>
+      </label>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="{{ closeStart }}">Cancel</button>
+        <button class="btn btn-primary" disabled="{{ notAgreed }}" onclick="{{ confirmStart }}">Begin exam</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    joinCode: '',
+    startIndex: null,
+    agreed: false,
+    announcement: "Scheduled maintenance Sunday 2\u20134am UTC \u2014 exams in progress will not be affected.",
+    student: { number: '20240147' },
+    exams: [
+      { title: 'Data Structures — Midterm', type: 'Mixed', duration: 90, marks: 100, attempt: '1/1' },
+      { title: 'Kotlin Fundamentals Lab', type: 'Coding', duration: 60, marks: 50, attempt: '1/2' },
+      { title: 'Databases — Quiz 3', type: 'MCQ only', duration: 20, marks: 20, attempt: '1/1' },
+    ],
+    pending: [
+      { title: 'Algorithms — Assignment 2', date: 'Jul 14, 2026' },
+    ],
+    completed: [
+      { title: 'Intro to Programming — Final', date: 'Jun 28, 2026', pct: 88, score: 88, total: 100, markedBy: 'Auto-graded', tagClass: 'tag-neutral' },
+      { title: 'Operating Systems — Quiz 1', date: 'Jun 10, 2026', pct: 76, score: 38, total: 50, markedBy: 'Lecturer marked', tagClass: 'tag-accent' },
+    ],
+  };
+  onJoinChange = (e) => this.setState({ joinCode: e.target.value.toUpperCase() });
+  handleJoin = (e) => { e.preventDefault(); this.setState({ joinCode: '' }); };
+  handleLogout = () => { window.location.href = './StudentLogin.dc.html'; };
+  openStart = (i) => this.setState({ startIndex: i, agreed: false });
+  closeStart = () => this.setState({ startIndex: null });
+  onAgree = (e) => this.setState({ agreed: e.target.checked });
+  stop = (e) => e.stopPropagation();
+  confirmStart = () => { window.location.href = './ExamRoom.dc.html'; };
+  renderVals() {
+    const s = this.state;
+    return {
+      joinCode: s.joinCode,
+      joinDisabled: !s.joinCode,
+      student: s.student,
+      pending: s.pending,
+      completed: s.completed,
+      pendingCount: s.pending.length,
+      completedCount: s.completed.length,
+      onJoinChange: this.onJoinChange,
+      handleJoin: this.handleJoin,
+      handleLogout: this.handleLogout,
+      announcement: s.announcement,
+      exams: s.exams.map((exam, i) => ({ ...exam, openStart: () => this.openStart(i) })),
+      startTarget: s.startIndex === null ? null : s.exams[s.startIndex],
+      agreed: s.agreed, notAgreed: !s.agreed, onAgree: this.onAgree,
+      closeStart: this.closeStart, stop: this.stop, confirmStart: this.confirmStart,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

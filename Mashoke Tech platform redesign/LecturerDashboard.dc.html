@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  a:hover { color: var(--color-accent-700); }
+  body { margin: 0; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--space-6); }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+  .chip { padding: 7px 14px; font-size: 12px; font-weight: 700; border: 1px solid var(--color-divider); background: transparent; cursor: pointer; }
+  .chip.active { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) { .top-actions { flex-direction: column; align-items: stretch !important; } }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div class="wrap" style="display:flex;align-items:center;width:100%;">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs <span class="tag tag-neutral" style="margin-left:4px;">Staff</span>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:var(--space-2);">
+      <button class="btn btn-icon btn-secondary" title="Profile &amp; security" onclick="{{ openProfile }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></button>
+      <button class="btn btn-icon btn-secondary" title="Log out" onclick="{{ logout }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></button>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <div class="top-actions" style="display:flex;justify-content:space-between;align-items:flex-end;gap:var(--space-6);flex-wrap:wrap;margin-bottom:var(--space-6);">
+    <div>
+      <h1>Dashboard</h1>
+      <p class="text-muted">Manage assessments, track grading, and coordinate with co-markers.</p>
+    </div>
+    <button class="btn btn-primary" onclick="{{ openCreate }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Create examination</button>
+  </div>
+
+  <sc-if value="{{ aiBanner }}" hint-placeholder-val="{{ false }}">
+    <div class="card" style="background:var(--color-accent-100);border:1px solid var(--color-accent-300);margin-bottom:var(--space-6);display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:13px;color:var(--color-accent-800);">{{ aiBanner }}</span>
+      <button class="btn btn-ghost" onclick="{{ dismissBanner }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+    </div>
+  </sc-if>
+
+  <div class="stat-grid" style="margin-bottom:var(--space-6);">
+    <div class="card elev-sm"><span class="card-kicker">Exams</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.exams }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Submissions</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.submissions }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Avg. score</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.avg }}%</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Pending grading</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;color:var(--color-accent-700);">{{ stats.pending }}</span></div>
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:var(--space-4);">
+    <sc-for list="{{ subjects }}" as="subj" hint-placeholder-count="3">
+      <button class="chip {{ subj.cls }}" onclick="{{ subj.select }}">{{ subj.name }}</button>
+    </sc-for>
+    <button class="chip" onclick="{{ openNewSubject }}" style="color:var(--color-accent);border-color:var(--color-accent);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> New subject</button>
+  </div>
+
+  <table class="table">
+    <thead><tr><th>Exam</th><th>Subject</th><th>Type</th><th>Status</th><th>Submissions</th><th>Avg.</th><th></th></tr></thead>
+    <tbody>
+      <sc-for list="{{ exams }}" as="e" hint-placeholder-count="4">
+        <tr>
+          <td>
+            <div style="font-weight:700;">{{ e.title }}</div>
+            <div class="text-muted" style="font-size:11px;">Code {{ e.code }}</div>
+          </td>
+          <td>{{ e.subject }}</td>
+          <td><span class="tag tag-outline">{{ e.type }}</span></td>
+          <td>
+            <button class="chip {{ e.statusCls }}" style="padding:4px 10px;" onclick="{{ e.toggleStatus }}">{{ e.statusLabel }}</button>
+          </td>
+          <td>{{ e.submissions }}</td>
+          <td style="font-weight:800;">{{ e.avg }}%</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="btn btn-ghost" style="padding:4px;color:var(--color-accent-700);" title="Mark all with AI" onclick="{{ e.aiGradeAll }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path></svg></button>
+            <a href="./LecturerResults.dc.html" class="btn btn-ghost" style="padding:4px;" title="Results &amp; analytics"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></a>
+            <a href="./SubmissionReview.dc.html" class="btn btn-ghost" style="padding:4px;" title="Review submissions"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="m9 14 2 2 4-4"></path></svg></a>
+            <button class="btn btn-ghost" style="padding:4px;" title="Edit questions" onclick="{{ e.editQuestions }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg></button>
+            <button class="btn btn-ghost" style="padding:4px;" title="Manage enrollment &amp; co-markers" onclick="{{ e.manage }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button>
+            <button class="btn btn-ghost" style="padding:4px;color:var(--color-accent-700);" title="Delete" onclick="{{ e.remove }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
+          </td>
+        </tr>
+      </sc-for>
+    </tbody>
+  </table>
+</main>
+
+<sc-if value="{{ showCreate }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeCreateBackdrop }}">
+    <div class="dialog" style="max-width:560px;max-height:88vh;overflow:auto;" onclick="{{ stop }}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div class="dialog-title">New examination</div>
+          <p class="text-muted" style="font-size:12px;margin:2px 0 0;">Configure the basics — you can add questions after saving.</p>
+        </div>
+        <button class="btn btn-icon" onclick="{{ closeCreate }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+
+      <div class="field"><label>Title</label><input class="input" placeholder="e.g. Computer Science 101 — Final"/></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);">
+        <div class="field"><label>Duration (minutes)</label><input class="input" type="number" value="60"/></div>
+        <div class="field"><label>Total marks</label><input class="input" type="number" value="100"/></div>
+      </div>
+
+      <div class="field">
+        <label>Category</label>
+        <div class="seg">
+          <label class="seg-opt"><input type="radio" name="cat" checked=""/> MCQ only</label>
+          <label class="seg-opt"><input type="radio" name="cat"/> Structured</label>
+          <label class="seg-opt"><input type="radio" name="cat"/> Mixed</label>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);">
+        <div class="field">
+          <label>Mode</label>
+          <div class="seg">
+            <label class="seg-opt"><input type="radio" name="mode" checked=""/> Closed book</label>
+            <label class="seg-opt"><input type="radio" name="mode"/> Open book</label>
+          </div>
+        </div>
+        <div class="field"><label>Enrollment code</label><input class="input" value="X7QF2K" style="font-family:ui-monospace,monospace;letter-spacing:0.1em;"/></div>
+      </div>
+
+      <label class="radio" style="margin-top:var(--space-2);">
+        <input type="checkbox"/><span class="dot" style="border-radius:4px;"></span>
+        <span>Enable in-browser Kotlin coding environment</span>
+      </label>
+
+      <div class="hr"></div>
+      <div class="field">
+        <label>Questions</label>
+        <div style="display:flex;gap:var(--space-3);align-items:center;">
+          <input class="input" type="file" accept=".xlsx,.csv" onchange="{{ onQuestionsFile }}" style="flex:1;"/>
+          <span class="text-muted" style="font-size:11px;white-space:nowrap;">or add manually after saving</span>
+        </div>
+        <sc-if value="{{ questionsFileName }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--color-accent-700);font-size:12px;font-weight:700;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            {{ questionsFileName }} — {{ importedCount }} questions ready to import
+          </div>
+        </sc-if>
+      </div>
+
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="{{ closeCreate }}">Cancel</button>
+        <button class="btn btn-primary" onclick="{{ closeCreate }}">Create examination</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ editingExam }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeQuestions }}">
+    <div class="dialog" style="max-width:640px;max-height:88vh;overflow:auto;" onclick="{{ stop }}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div class="dialog-title">Questions</div>
+          <p class="text-muted" style="font-size:12px;margin:2px 0 0;">{{ editingExam.title }}</p>
+        </div>
+        <button class="btn btn-icon" onclick="{{ closeQuestions }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+      </div>
+
+      <div class="field" style="background:var(--color-neutral-100);padding:var(--space-3);">
+        <label>Bulk-import from Excel</label>
+        <div style="display:flex;gap:var(--space-3);align-items:center;">
+          <input class="input" type="file" accept=".xlsx,.csv" onchange="{{ onQuestionsFile }}" style="flex:1;background:var(--color-bg);"/>
+          <span class="text-muted" style="font-size:11px;white-space:nowrap;">replaces list below</span>
+        </div>
+      </div>
+
+      <sc-for list="{{ questions }}" as="q" hint-placeholder-count="3">
+        <div class="card" style="background:var(--color-neutral-100);">
+          <div style="display:flex;justify-content:space-between;gap:var(--space-2);align-items:flex-start;">
+            <span class="card-kicker">Question {{ q.n }}</span>
+            <button class="btn btn-ghost" style="padding:2px;color:var(--color-accent-700);" onclick="{{ q.remove }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+          </div>
+          <input class="input" value="{{ q.text }}" oninput="{{ q.onTextChange }}" placeholder="Question text"/>
+          <div style="display:grid;grid-template-columns:1fr 100px;gap:var(--space-3);">
+            <select class="input" value="{{ q.type }}" onchange="{{ q.onTypeChange }}">
+              <option value="mcq">MCQ</option>
+              <option value="structured">Structured</option>
+              <option value="coding">Coding</option>
+            </select>
+            <input class="input" type="number" value="{{ q.marks }}" oninput="{{ q.onMarksChange }}" placeholder="Marks"/>
+          </div>
+        </div>
+      </sc-for>
+
+      <button class="btn btn-secondary btn-block" style="justify-content:center;" onclick="{{ addQuestion }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> Add question</button>
+
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="{{ closeQuestions }}">Cancel</button>
+        <button class="btn btn-primary" onclick="{{ closeQuestions }}">Save questions</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ showProfile }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeProfile }}">
+    <div class="dialog" style="max-width:460px;" onclick="{{ stop }}">
+      <div class="dialog-title">Profile &amp; security</div>
+      <div class="field"><label>Full name</label><input class="input" value="Dr. Amina Yusuf"/></div>
+      <div class="field"><label>Email</label><input class="input" value="a.yusuf@lsu.edu" disabled=""/></div>
+      <div class="hr"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);">
+        <div class="field"><label>New password</label><input class="input" type="password" placeholder="••••••••"/></div>
+        <div class="field"><label>Confirm password</label><input class="input" type="password" placeholder="••••••••"/></div>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="{{ closeProfile }}">Cancel</button>
+        <button class="btn btn-primary" onclick="{{ closeProfile }}">Save changes</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ showNewSubject }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeNewSubject }}">
+    <div class="dialog" style="max-width:380px;" onclick="{{ stop }}">
+      <div class="dialog-title">New subject</div>
+      <div class="field"><label>Subject name</label><input class="input" placeholder="e.g. Computer Science" value="{{ newSubjectName }}" oninput="{{ onNewSubjectName }}"/></div>
+      <div class="dialog-actions">
+        <button class="btn btn-secondary" onclick="{{ closeNewSubject }}">Cancel</button>
+        <button class="btn btn-primary" onclick="{{ saveNewSubject }}" disabled="{{ newSubjectDisabled }}">Create</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ manageTarget }}" hint-placeholder-val="{{ false }}">
+  <div class="dialog-backdrop" onclick="{{ closeManage }}">
+    <div class="dialog" style="max-width:480px;" onclick="{{ stop }}">
+      <div class="dialog-title">{{ manageTarget.title }}</div>
+      <h4 style="margin-bottom:var(--space-2);">Enrollment</h4>
+      <div style="display:flex;gap:var(--space-3);align-items:flex-end;margin-bottom:var(--space-4);">
+        <div class="field" style="flex:1;"><label>Enrollment code</label><input class="input" value="{{ manageTarget.code }}" style="font-family:ui-monospace,monospace;letter-spacing:0.1em;" disabled=""/></div>
+        <button class="btn btn-secondary" onclick="{{ regenerateCode }}">Regenerate</button>
+      </div>
+      <div class="field"><label>Bulk-enroll students (.xlsx roster)</label><input class="input" type="file" accept=".xlsx,.csv"/></div>
+      <div class="hr"></div>
+      <h4 style="margin-bottom:var(--space-2);">Co-markers</h4>
+      <sc-for list="{{ manageTarget.coMarkers }}" as="cm" hint-placeholder-count="1">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--color-divider);">
+          <span style="font-size:13px;">{{ cm.email }}</span>
+          <button class="btn btn-ghost" style="color:var(--color-accent-700);" onclick="{{ cm.remove }}">Remove</button>
+        </div>
+      </sc-for>
+      <div style="display:flex;gap:8px;margin-top:var(--space-3);">
+        <input class="input" type="email" placeholder="lecturer@university.edu" value="{{ coMarkerEmail }}" oninput="{{ onCoMarkerEmail }}"/>
+        <button class="btn btn-secondary" onclick="{{ addCoMarker }}">Add</button>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-primary" onclick="{{ closeManage }}">Done</button>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    showCreate: false,
+    activeSubject: 'all',
+    aiBanner: '',
+    editingExamIndex: null,
+    showProfile: false,
+    showNewSubject: false,
+    newSubjectName: '',
+    manageIndex: null,
+    coMarkerEmail: '',
+    questionsFileName: '',
+    importedCount: 0,
+    coMarkers: { 0: [{ email: 'k.boateng@lsu.edu' }] },
+    questions: [
+      { text: 'Explain time complexity of common sort algorithms.', type: 'mcq', marks: 5 },
+      { text: 'Explain hash collisions and two resolution strategies.', type: 'structured', marks: 20 },
+      { text: 'Implement merge sort.', type: 'coding', marks: 25 },
+    ],
+    exams: [
+      { title: 'Data Structures — Midterm', code: 'X7QF2K', subject: 'Computer Science', type: 'Mixed', active: true, submissions: 42, avg: 74 },
+      { title: 'Kotlin Fundamentals Lab', code: 'B2LP9A', subject: 'Computer Science', type: 'Coding', active: true, submissions: 38, avg: 81 },
+      { title: 'Databases — Quiz 3', code: 'M4TR6D', subject: 'Databases', type: 'MCQ only', active: false, submissions: 51, avg: 68 },
+      { title: 'Operating Systems — Quiz 1', code: 'K9WZ3E', subject: 'Systems', type: 'Structured', active: false, submissions: 45, avg: 71 },
+    ],
+  };
+  openCreate = () => this.setState({ showCreate: true });
+  closeCreate = () => this.setState({ showCreate: false });
+  closeCreateBackdrop = () => this.setState({ showCreate: false });
+  stop = (e) => e.stopPropagation();
+  openProfile = () => this.setState({ showProfile: true });
+  closeProfile = () => this.setState({ showProfile: false });
+  openNewSubject = () => this.setState({ showNewSubject: true, newSubjectName: '' });
+  closeNewSubject = () => this.setState({ showNewSubject: false });
+  onNewSubjectName = (e) => this.setState({ newSubjectName: e.target.value });
+  saveNewSubject = () => this.setState({ showNewSubject: false });
+  openManage = (i) => this.setState({ manageIndex: i, coMarkerEmail: '' });
+  closeManage = () => this.setState({ manageIndex: null });
+  onCoMarkerEmail = (e) => this.setState({ coMarkerEmail: e.target.value });
+  addCoMarker = () => this.setState((s) => {
+    if (!s.coMarkerEmail.trim()) return null;
+    const list = s.coMarkers[s.manageIndex] || [];
+    return { coMarkers: { ...s.coMarkers, [s.manageIndex]: [...list, { email: s.coMarkerEmail.trim() }] }, coMarkerEmail: '' };
+  });
+  removeCoMarker = (examIdx, ci) => this.setState((s) => {
+    const list = (s.coMarkers[examIdx] || []).filter((_, idx) => idx !== ci);
+    return { coMarkers: { ...s.coMarkers, [examIdx]: list } };
+  });
+  regenerateCode = () => this.setState((s) => {
+    if (s.manageIndex === null) return null;
+    const exams = s.exams.slice();
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    exams[s.manageIndex] = { ...exams[s.manageIndex], code };
+    return { exams };
+  });
+  logout = () => { window.location.href = './LecturerLogin.dc.html'; };
+  selectSubject = (id) => this.setState({ activeSubject: id });
+  toggleStatus = (i) => this.setState((s) => {
+    const exams = s.exams.slice();
+    exams[i] = { ...exams[i], active: !exams[i].active };
+    return { exams };
+  });
+  removeExam = (i) => this.setState((s) => ({ exams: s.exams.filter((_, idx) => idx !== i) }));
+  aiGradeAll = (i) => this.setState((s) => ({ aiBanner: `AI graded ${s.exams[i].submissions} submissions for "${s.exams[i].title}". Review before finalizing.` }));
+  dismissBanner = () => this.setState({ aiBanner: '' });
+  editQuestions = (i) => this.setState({ editingExamIndex: i });
+  closeQuestions = () => this.setState({ editingExamIndex: null });
+  addQuestion = () => this.setState((s) => ({ questions: [...s.questions, { text: '', type: 'mcq', marks: 1 }] }));
+  removeQuestion = (i) => this.setState((s) => ({ questions: s.questions.filter((_, idx) => idx !== i) }));
+  onQuestionsFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const imported = [
+      { text: 'Imported: Explain Big-O of common data structures.', type: 'mcq', marks: 5 },
+      { text: 'Imported: Compare arrays vs linked lists.', type: 'structured', marks: 15 },
+      { text: 'Imported: Implement a binary search tree insert.', type: 'coding', marks: 20 },
+    ];
+    this.setState({ questionsFileName: file.name, importedCount: imported.length, questions: imported });
+  };
+  updateQuestion = (i, field, value) => this.setState((s) => {
+    const questions = s.questions.slice();
+    questions[i] = { ...questions[i], [field]: value };
+    return { questions };
+  });
+  renderVals() {
+    const s = this.state;
+    const subjNames = ['Computer Science', 'Databases', 'Systems'];
+    const subjects = [{ id: 'all', name: 'All exams' }, ...subjNames.map((n) => ({ id: n, name: n }))].map((subj) => ({
+      name: subj.name,
+      cls: s.activeSubject === subj.id ? 'active' : '',
+      select: () => this.selectSubject(subj.id),
+    }));
+    const filtered = s.exams.filter((e) => s.activeSubject === 'all' || e.subject === s.activeSubject);
+    const exams = filtered.map((e) => {
+      const realIdx = s.exams.indexOf(e);
+      return {
+        title: e.title, code: e.code, subject: e.subject, type: e.type,
+        statusLabel: e.active ? 'Active' : 'Inactive',
+        statusCls: e.active ? 'active' : '',
+        submissions: e.submissions, avg: e.avg,
+        toggleStatus: () => this.toggleStatus(realIdx),
+        remove: () => this.removeExam(realIdx),
+        aiGradeAll: () => this.aiGradeAll(realIdx),
+        editQuestions: () => this.editQuestions(realIdx),
+        manage: () => this.openManage(realIdx),
+      };
+    });
+    const totalSubs = s.exams.reduce((a, e) => a + e.submissions, 0);
+    const avgAll = Math.round(s.exams.reduce((a, e) => a + e.avg, 0) / s.exams.length);
+    return {
+      exams, subjects,
+      stats: { exams: s.exams.length, submissions: totalSubs, avg: avgAll, pending: 6 },
+      showCreate: s.showCreate,
+      openCreate: this.openCreate, closeCreate: this.closeCreate, closeCreateBackdrop: this.closeCreateBackdrop, stop: this.stop,
+      openProfile: this.openProfile, closeProfile: this.closeProfile, showProfile: s.showProfile, logout: this.logout,
+      showNewSubject: s.showNewSubject, openNewSubject: this.openNewSubject, closeNewSubject: this.closeNewSubject,
+      newSubjectName: s.newSubjectName, onNewSubjectName: this.onNewSubjectName, saveNewSubject: this.saveNewSubject,
+      newSubjectDisabled: !s.newSubjectName.trim(),
+      manageTarget: s.manageIndex === null ? null : {
+        title: s.exams[s.manageIndex].title, code: s.exams[s.manageIndex].code,
+        coMarkers: (s.coMarkers[s.manageIndex] || []).map((cm, ci) => ({ email: cm.email, remove: () => this.removeCoMarker(s.manageIndex, ci) })),
+      },
+      closeManage: this.closeManage, regenerateCode: this.regenerateCode,
+      coMarkerEmail: s.coMarkerEmail, onCoMarkerEmail: this.onCoMarkerEmail, addCoMarker: this.addCoMarker,
+      aiBanner: s.aiBanner, dismissBanner: this.dismissBanner,
+      editingExam: s.editingExamIndex === null ? null : s.exams[s.editingExamIndex],
+      closeQuestions: this.closeQuestions, addQuestion: this.addQuestion,
+      onQuestionsFile: this.onQuestionsFile, questionsFileName: s.questionsFileName, importedCount: s.importedCount,
+      questions: s.questions.map((q, i) => ({
+        n: i + 1, text: q.text, type: q.type, marks: q.marks,
+        onTextChange: (e) => this.updateQuestion(i, 'text', e.target.value),
+        onTypeChange: (e) => this.updateQuestion(i, 'type', e.target.value),
+        onMarksChange: (e) => this.updateQuestion(i, 'marks', parseInt(e.target.value) || 0),
+        remove: () => this.removeQuestion(i),
+      })),
+    };
+  }
+}
+
+</script>
+</body>
+</html>

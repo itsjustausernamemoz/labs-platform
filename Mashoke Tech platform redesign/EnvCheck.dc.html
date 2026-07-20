@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  body { margin: 0; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 var(--space-6); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div class="wrap" style="display:flex;align-items:center;width:100%;">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs
+    </div>
+    <a href="./StudentDashboard.dc.html" style="margin-left:auto;font-size:13px;display:flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg> Back to dashboard</a>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <h1>Environment check</h1>
+  <p class="text-muted" style="margin-bottom:var(--space-6);">We verify your browser and compiler sandbox before every timed assessment.</p>
+
+  <div style="display:flex;flex-direction:column;gap:0;">
+    <sc-for list="{{ checks }}" as="c" hint-placeholder-count="5">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-3) 0;border-bottom:1px solid var(--color-divider);">
+        <div>
+          <div style="font-weight:700;font-size:14px;">{{ c.label }}</div>
+          <div class="text-muted" style="font-size:12px;">{{ c.detail }}</div>
+        </div>
+        <sc-if value="{{ c.pending }}" hint-placeholder-val="{{ false }}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite;color:var(--color-neutral-500);"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+        </sc-if>
+        <sc-if value="{{ c.ok }}" hint-placeholder-val="{{ false }}">
+          <span class="tag tag-accent-2" style="display:flex;align-items:center;gap:4px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Ready</span>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+
+  <button class="btn btn-primary btn-block" style="justify-content:center;margin-top:var(--space-6);" disabled="{{ notAllReady }}" onclick="{{ goToDashboard }}">
+    <sc-if value="{{ notAllReady }}" hint-placeholder-val="{{ true }}">Running checks…</sc-if>
+    <sc-if value="{{ allReady }}" hint-placeholder-val="{{ false }}">All systems ready — continue</sc-if>
+  </button>
+</main>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { step: 0 };
+  componentDidMount() {
+    this.timer = setInterval(() => this.setState((s) => ({ step: Math.min(s.step + 1, 5) })), 500);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+  goToDashboard = () => { window.location.href = './StudentDashboard.dc.html'; };
+  renderVals() {
+    const raw = [
+      { label: 'Browser compatibility', detail: 'Chrome, Edge or Firefox, latest two versions' },
+      { label: 'Fullscreen support', detail: 'Required to lock the exam window' },
+      { label: 'Tab-switch detection', detail: 'Flags navigation away from the exam' },
+      { label: 'Kotlin compiler sandbox', detail: 'In-browser JVM/JS runtime' },
+      { label: 'Network connection', detail: 'Stable connection for autosave' },
+    ];
+    const checks = raw.map((c, i) => ({ ...c, pending: i >= this.state.step, ok: i < this.state.step }));
+    const allReady = this.state.step >= raw.length;
+    return { checks, allReady, notAllReady: !allReady, goToDashboard: this.goToDashboard };
+  }
+}
+
+</script>
+</body>
+</html>

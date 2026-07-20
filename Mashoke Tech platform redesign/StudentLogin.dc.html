@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  a:hover { color: var(--color-accent-700); text-decoration: underline; }
+  body { margin: 0; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; min-height: 100vh; }
+  @media (max-width: 860px) {
+    .split { grid-template-columns: 1fr; }
+    .split-brand { min-height: 260px; }
+  }
+</style>
+</helmet>
+<div class="split">
+  <div class="split-brand" style="background:var(--color-accent);color:var(--color-bg);display:flex;flex-direction:column;justify-content:space-between;padding:var(--space-8);">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:38px;height:38px;object-fit:contain;background:var(--color-bg);border-radius:50%;"/>
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:18px;">Mashoke Labs</span>
+    </div>
+    <div>
+      <h1 style="font-size:56px;color:var(--color-bg);max-width:520px;">Assessments, run cleanly.</h1>
+      <p style="color:color-mix(in srgb, var(--color-bg) 82%, transparent);font-size:16px;max-width:420px;">Join your exam with a single code, verify your setup, and get straight to work.</p>
+    </div>
+    <p style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-bg) 60%, transparent);">A Mashoke Tech product</p>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:center;padding:var(--space-8);">
+    <div style="width:100%;max-width:380px;">
+      <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ false }}">
+        <h2 style="margin-bottom:var(--space-1);">Create your account</h2>
+        <p class="text-muted" style="font-size:14px;margin-bottom:var(--space-6);">Self-enroll with the institution you belong to.</p>
+      </sc-if>
+      <sc-if value="{{ isSignin }}" hint-placeholder-val="{{ true }}">
+        <h2 style="margin-bottom:var(--space-1);">Student sign-in</h2>
+        <p class="text-muted" style="font-size:14px;margin-bottom:var(--space-6);">Enter your student number to begin.</p>
+      </sc-if>
+
+      <form onsubmit="{{ handleLogin }}">
+        <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ false }}">
+          <div class="field" style="margin-bottom:var(--space-4);">
+            <label>Institution</label>
+            <select class="input" value="{{ institutionId }}" onchange="{{ onInstitutionChange }}">
+              <option value="">Select your institution…</option>
+              <sc-for list="{{ institutions }}" as="inst" hint-placeholder-count="5">
+                <option value="{{ inst.id }}">{{ inst.name }}</option>
+              </sc-for>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:var(--space-4);">
+            <label>Full name</label>
+            <input class="input" type="text" placeholder="e.g. Aisha Nkemdirim" value="{{ fullName }}" oninput="{{ onNameChange }}"/>
+          </div>
+        </sc-if>
+
+        <div class="field" style="margin-bottom:var(--space-4);">
+          <label>Student number</label>
+          <input class="input" type="text" placeholder="20240001" value="{{ studentNumber }}" oninput="{{ onNumberChange }}" autofocus="{{ true }}" style="font-size:18px;letter-spacing:0.08em;"/>
+        </div>
+
+        <sc-if value="{{ error }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px solid var(--color-accent);color:var(--color-accent-700);font-size:13px;padding:var(--space-2) var(--space-3);margin-bottom:var(--space-4);">{{ error }}</div>
+        </sc-if>
+
+        <button type="submit" class="btn btn-primary btn-block" disabled="{{ isLoading }}" style="justify-content:center;padding:var(--space-3);font-size:15px;">
+          <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+          </sc-if>
+          <sc-if value="{{ notLoading }}" hint-placeholder-val="{{ true }}">
+            <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ false }}"><span>Create account</span></sc-if>
+            <sc-if value="{{ isSignin }}" hint-placeholder-val="{{ true }}"><span>Continue to exams</span></sc-if>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+          </sc-if>
+        </button>
+      </form>
+
+      <div class="hr"></div>
+      <sc-if value="{{ isSignin }}" hint-placeholder-val="{{ true }}">
+        <p style="font-size:13px;margin-bottom:var(--space-2);">New here? <a href="#" onclick="{{ toggleMode }}">Create an account &rarr;</a></p>
+      </sc-if>
+      <sc-if value="{{ isSignup }}" hint-placeholder-val="{{ false }}">
+        <p style="font-size:13px;margin-bottom:var(--space-2);">Already have an account? <a href="#" onclick="{{ toggleMode }}">Sign in &rarr;</a></p>
+      </sc-if>
+      <a href="./LecturerLogin.dc.html" style="font-size:13px;">Lecturer &amp; staff sign-in &rarr;</a>
+    </div>
+  </div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { mode: 'signin', studentNumber: '', fullName: '', institutionId: '', isLoading: false, error: '' };
+  institutions = [
+    { id: 'lsu', name: 'Lagoon State University' },
+    { id: 'northbridge', name: 'Northbridge Polytechnic' },
+    { id: 'delta', name: 'Delta Coding Academy' },
+    { id: 'ridgeway', name: 'Ridgeway College' },
+    { id: 'summit', name: 'Summit Institute of Tech' },
+  ];
+  onNumberChange = (e) => this.setState({ studentNumber: e.target.value, error: '' });
+  onNameChange = (e) => this.setState({ fullName: e.target.value, error: '' });
+  onInstitutionChange = (e) => this.setState({ institutionId: e.target.value, error: '' });
+  toggleMode = (e) => { e.preventDefault(); this.setState((s) => ({ mode: s.mode === 'signin' ? 'signup' : 'signin', error: '' })); };
+  handleLogin = (e) => {
+    e.preventDefault();
+    const s = this.state;
+    if (!s.studentNumber.trim()) { this.setState({ error: 'Enter your student number.' }); return; }
+    if (s.mode === 'signup' && !s.institutionId) { this.setState({ error: 'Select the institution you belong to.' }); return; }
+    if (s.mode === 'signup' && !s.fullName.trim()) { this.setState({ error: 'Enter your full name.' }); return; }
+    this.setState({ isLoading: true, error: '' });
+    setTimeout(() => { window.location.href = './StudentDashboard.dc.html'; }, 500);
+  };
+  renderVals() {
+    const s = this.state;
+    return {
+      studentNumber: s.studentNumber,
+      fullName: s.fullName,
+      institutionId: s.institutionId,
+      institutions: this.institutions,
+      isLoading: s.isLoading,
+      notLoading: !s.isLoading,
+      error: s.error,
+      isSignup: s.mode === 'signup',
+      isSignin: s.mode === 'signin',
+      toggleMode: this.toggleMode,
+      onNumberChange: this.onNumberChange,
+      onNameChange: this.onNameChange,
+      onInstitutionChange: this.onInstitutionChange,
+      handleLogin: this.handleLogin,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

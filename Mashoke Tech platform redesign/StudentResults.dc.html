@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  a:hover { color: var(--color-accent-700); }
+  body { margin: 0; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 var(--space-6); }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div class="wrap" style="display:flex;align-items:center;width:100%;">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs
+    </div>
+    <a href="./StudentDashboard.dc.html" style="margin-left:auto;font-size:13px;display:flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg> Back to dashboard</a>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <span class="tag tag-neutral">Intro to Programming — Final</span>
+  <h1 style="margin-top:var(--space-2);">Results</h1>
+  <p class="text-muted">Submitted Jun 28, 2026 &middot; Marked by Auto-grader</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-4);margin:var(--space-6) 0;">
+    <div class="card elev-sm">
+      <span class="card-kicker">Score</span>
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:40px;">88<span style="color:var(--color-accent);font-size:22px;">%</span></span>
+      <span class="card-meta">88 / 100 marks</span>
+    </div>
+    <div class="card elev-sm">
+      <span class="card-kicker">Time taken</span>
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:40px;">54<span style="font-size:16px;">min</span></span>
+      <span class="card-meta">of 60 min allowed</span>
+    </div>
+    <div class="card elev-sm">
+      <span class="card-kicker">Class average</span>
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:40px;">71<span style="color:var(--color-accent);font-size:22px;">%</span></span>
+      <span class="card-meta">+17 pts above average</span>
+    </div>
+  </div>
+
+  <h3>Question breakdown</h3>
+  <table class="table">
+    <thead><tr><th>#</th><th>Question</th><th>Type</th><th>Marks</th></tr></thead>
+    <tbody>
+      <sc-for list="{{ rows }}" as="r" hint-placeholder-count="5">
+        <tr>
+          <td>{{ r.n }}</td>
+          <td style="max-width:360px;">{{ r.q }}</td>
+          <td><span class="tag {{ r.tagClass }}">{{ r.type }}</span></td>
+          <td style="font-weight:800;">{{ r.marks }}</td>
+        </tr>
+      </sc-for>
+    </tbody>
+  </table>
+
+  <div class="hr"></div>
+  <h3>Lecturer feedback</h3>
+  <p style="font-size:14px;">Strong handling of recursion and array manipulation. Review time complexity notation before the next assessment — Q4 lost marks for an incorrect Big-O bound.</p>
+</main>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      rows: [
+        { n: 1, q: 'Time complexity of common sorts', type: 'MCQ', tagClass: 'tag-neutral', marks: '5/5' },
+        { n: 2, q: 'Explain hash collisions and resolution strategies', type: 'Structured', tagClass: 'tag-accent', marks: '18/20' },
+        { n: 3, q: 'Implement merge sort', type: 'Coding', tagClass: 'tag-outline', marks: '25/25' },
+        { n: 4, q: 'Big-O of nested loop traversal', type: 'MCQ', tagClass: 'tag-neutral', marks: '0/5' },
+        { n: 5, q: 'Design an LRU cache', type: 'Structured', tagClass: 'tag-accent', marks: '40/45' },
+      ],
+    };
+  }
+}
+
+</script>
+</body>
+</html>

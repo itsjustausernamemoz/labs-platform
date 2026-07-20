@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  body { margin: 0; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--space-6); }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+  .tabbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-6); }
+  .tabbar a { padding: 9px 16px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--color-divider); }
+  .tabbar a.active { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div class="wrap" style="display:flex;align-items:center;width:100%;">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs <span class="tag tag-outline" style="margin-left:4px;">Platform Admin</span>
+    </div>
+    <div style="margin-left:auto;">
+      <a href="./AdminLogin.dc.html" class="btn btn-icon btn-secondary" title="Log out"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></a>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <h1>Support</h1>
+  <p class="text-muted" style="margin-bottom:var(--space-4);">Issues escalated by institution admins that need Mashoke Tech attention.</p>
+
+  <div class="tabbar">
+    <a href="./AdminOverview.dc.html">Overview</a>
+    <a href="./AdminDashboard.dc.html">Institutions</a>
+    <a href="./AdminUsers.dc.html">Users</a>
+    <a href="./AdminBilling.dc.html">Billing &amp; revenue</a>
+    <a href="./AdminSupport.dc.html" class="active">Support</a>
+    <a href="./AdminAuditLog.dc.html">Audit log</a>
+    <a href="./AdminSettings.dc.html">Settings</a>
+  </div>
+
+  <div class="stat-grid" style="margin-bottom:var(--space-6);">
+    <div class="card elev-sm"><span class="card-kicker">Open</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;color:var(--color-accent-700);">{{ stats.open }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">In progress</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.progress }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Resolved (30d)</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.resolved }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Avg. response</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.avgResponse }}</span></div>
+  </div>
+
+  <table class="table">
+    <thead><tr><th>Issue</th><th>Institution</th><th>Category</th><th>Status</th><th>Escalated</th><th></th></tr></thead>
+    <tbody>
+      <sc-for list="{{ issues }}" as="iss" hint-placeholder-count="5">
+        <tr>
+          <td style="font-weight:700;max-width:320px;">{{ iss.title }}</td>
+          <td>{{ iss.institution }}</td>
+          <td><span class="tag tag-neutral">{{ iss.category }}</span></td>
+          <td><span class="tag {{ iss.statusTagClass }}">{{ iss.status }}</span></td>
+          <td class="text-muted">{{ iss.date }}</td>
+          <td style="text-align:right;">
+            <button class="btn btn-ghost" onclick="{{ iss.resolve }}" disabled="{{ iss.isResolved }}">{{ iss.actionLabel }}</button>
+          </td>
+        </tr>
+      </sc-for>
+    </tbody>
+  </table>
+</main>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    issues: [
+      { title: 'Grading dispute — Q5 marked incorrectly', institution: 'Lagoon State University', category: 'Grading', status: 'open', date: 'Jul 17, 2026' },
+      { title: 'Kotlin compiler timing out for cohort of 40', institution: 'Northbridge Polytechnic', category: 'Technical', status: 'in progress', date: 'Jul 16, 2026' },
+      { title: 'Bulk student import failing on .xlsx upload', institution: 'Ridgeway College', category: 'Technical', status: 'in progress', date: 'Jul 15, 2026' },
+      { title: 'Requesting seat increase before intake', institution: 'Delta Coding Academy', category: 'Billing', status: 'resolved', date: 'Jul 10, 2026' },
+      { title: 'Lecturer account locked after password reset', institution: 'Summit Institute of Tech', category: 'Account', status: 'resolved', date: 'Jul 8, 2026' },
+    ],
+  };
+  resolveIssue = (i) => this.setState((s) => {
+    const issues = s.issues.slice();
+    issues[i] = { ...issues[i], status: 'resolved' };
+    return { issues };
+  });
+  renderVals() {
+    const s = this.state;
+    const cls = { open: 'tag-accent', 'in progress': 'tag-outline', resolved: 'tag-neutral' };
+    const label = { open: 'Start', 'in progress': 'Mark resolved', resolved: 'Resolved' };
+    const issues = s.issues.map((iss, i) => ({
+      ...iss,
+      statusTagClass: cls[iss.status],
+      status: iss.status === 'in progress' ? 'In progress' : iss.status[0].toUpperCase() + iss.status.slice(1),
+      isResolved: iss.status === 'resolved',
+      actionLabel: label[iss.status],
+      resolve: () => this.resolveIssue(i),
+    }));
+    return {
+      issues,
+      stats: {
+        open: s.issues.filter((i) => i.status === 'open').length,
+        progress: s.issues.filter((i) => i.status === 'in progress').length,
+        resolved: s.issues.filter((i) => i.status === 'resolved').length,
+        avgResponse: '4.2h',
+      },
+    };
+  }
+}
+
+</script>
+</body>
+</html>

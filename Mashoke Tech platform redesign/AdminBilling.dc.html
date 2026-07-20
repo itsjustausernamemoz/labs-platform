@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  body { margin: 0; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--space-6); }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+  .tabbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-6); }
+  .tabbar a { padding: 9px 16px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--color-divider); }
+  .tabbar a.active { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  .barchart { display: flex; align-items: flex-end; gap: var(--space-3); height: 160px; padding-top: var(--space-4); }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+  .bar { width: 100%; background: var(--color-accent); }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div class="wrap" style="display:flex;align-items:center;width:100%;">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs <span class="tag tag-outline" style="margin-left:4px;">Platform Admin</span>
+    </div>
+    <div style="margin-left:auto;">
+      <a href="./AdminLogin.dc.html" class="btn btn-icon btn-secondary" title="Log out"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></a>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <h1>Billing &amp; revenue</h1>
+  <p class="text-muted" style="margin-bottom:var(--space-4);">Subscription revenue across every institution on the platform.</p>
+
+  <div class="tabbar">
+    <a href="./AdminOverview.dc.html">Overview</a>
+    <a href="./AdminDashboard.dc.html">Institutions</a>
+    <a href="./AdminUsers.dc.html">Users</a>
+    <a href="./AdminBilling.dc.html" class="active">Billing &amp; revenue</a>
+    <a href="./AdminSupport.dc.html">Support</a>
+    <a href="./AdminAuditLog.dc.html">Audit log</a>
+    <a href="./AdminSettings.dc.html">Settings</a>
+  </div>
+
+  <div class="stat-grid" style="margin-bottom:var(--space-8);">
+    <div class="card elev-sm"><span class="card-kicker">MRR</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">${{ stats.mrr }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Revenue (YTD)</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">${{ stats.ytd }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Active subscriptions</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;">{{ stats.activeSubs }}</span></div>
+    <div class="card elev-sm"><span class="card-kicker">Past due</span><span style="font-family:var(--font-heading);font-weight:800;font-size:30px;color:var(--color-accent-700);">{{ stats.pastDue }}</span></div>
+  </div>
+
+  <h3>Monthly recurring revenue — last 6 months</h3>
+  <div class="barchart" style="margin-bottom:var(--space-8);">
+    <sc-for list="{{ months }}" as="m" hint-placeholder-count="6">
+      <div class="bar-col">
+        <span style="font-size:11px;font-weight:800;">${{ m.value }}</span>
+        <div class="bar" style="height:{{ m.pct }}%;"></div>
+        <span class="text-muted" style="font-size:11px;">{{ m.label }}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <h3>Subscriptions</h3>
+  <table class="table">
+    <thead><tr><th>Institution</th><th>Plan</th><th>Price / mo</th><th>Billing cycle</th><th>Next invoice</th><th>Status</th></tr></thead>
+    <tbody>
+      <sc-for list="{{ invoices }}" as="inv" hint-placeholder-count="5">
+        <tr>
+          <td style="font-weight:700;">{{ inv.name }}</td>
+          <td><span class="tag {{ inv.planTagClass }}">{{ inv.plan }}</span></td>
+          <td style="font-weight:800;">${{ inv.price }}</td>
+          <td>{{ inv.cycle }}</td>
+          <td>{{ inv.nextInvoice }}</td>
+          <td><span class="tag {{ inv.statusTagClass }}">{{ inv.status }}</span></td>
+        </tr>
+      </sc-for>
+    </tbody>
+  </table>
+</main>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const invoices = [
+      { name: 'Lagoon State University', plan: 'Enterprise', planTagClass: 'tag-accent', price: 1200, cycle: 'Monthly', nextInvoice: 'Aug 1, 2026', status: 'Paid', statusTagClass: 'tag-neutral' },
+      { name: 'Northbridge Polytechnic', plan: 'Standard', planTagClass: 'tag-outline', price: 299, cycle: 'Monthly', nextInvoice: 'Aug 3, 2026', status: 'Paid', statusTagClass: 'tag-neutral' },
+      { name: 'Delta Coding Academy', plan: 'Trial', planTagClass: 'tag-outline', price: 0, cycle: 'Trial', nextInvoice: '—', status: 'Trialing', statusTagClass: 'tag-outline' },
+      { name: 'Ridgeway College', plan: 'Standard', planTagClass: 'tag-outline', price: 299, cycle: 'Monthly', nextInvoice: 'Jul 20, 2026', status: 'Past due', statusTagClass: 'tag-accent' },
+      { name: 'Summit Institute of Tech', plan: 'Enterprise', planTagClass: 'tag-accent', price: 1200, cycle: 'Annual', nextInvoice: 'Jan 4, 2027', status: 'Paid', statusTagClass: 'tag-neutral' },
+    ];
+    const monthsRaw = [
+      { label: 'Feb', value: 2620 }, { label: 'Mar', value: 2810 }, { label: 'Apr', value: 2940 },
+      { label: 'May', value: 3105 }, { label: 'Jun', value: 3260 }, { label: 'Jul', value: 3398 },
+    ];
+    const max = Math.max(...monthsRaw.map((m) => m.value));
+    const months = monthsRaw.map((m) => ({ ...m, pct: Math.round((m.value / max) * 100) }));
+    const mrr = invoices.filter((i) => i.status !== 'Trialing').reduce((a, i) => a + (i.cycle === 'Annual' ? Math.round(i.price / 12) : i.price), 0);
+    return {
+      invoices, months,
+      stats: {
+        mrr,
+        ytd: mrr * 7,
+        activeSubs: invoices.filter((i) => i.status !== 'Trialing').length,
+        pastDue: invoices.filter((i) => i.status === 'Past due').length,
+      },
+    };
+  }
+}
+
+</script>
+</body>
+</html>

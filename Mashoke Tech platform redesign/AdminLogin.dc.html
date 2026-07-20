@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  a:hover { color: var(--color-accent-700); text-decoration: underline; }
+  body { margin: 0; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; min-height: 100vh; }
+  @media (max-width: 860px) { .split { grid-template-columns: 1fr; } .split-brand { min-height: 220px; } }
+</style>
+</helmet>
+<div class="split">
+  <div class="split-brand" style="background:var(--color-accent-900);color:var(--color-bg);display:flex;flex-direction:column;justify-content:space-between;padding:var(--space-8);">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:36px;height:36px;object-fit:contain;"/>
+      <span style="font-family:var(--font-heading);font-weight:800;font-size:18px;">Mashoke Labs</span>
+    </div>
+    <div>
+      <h1 style="font-size:48px;color:var(--color-bg);max-width:460px;">Platform administration.</h1>
+      <p style="color:color-mix(in srgb, var(--color-bg) 78%, transparent);font-size:16px;max-width:420px;">Onboard institutions, manage seats, and oversee usage across every lecturer and student portal.</p>
+    </div>
+    <p style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:color-mix(in srgb, var(--color-bg) 55%, transparent);">Internal &middot; Mashoke Tech staff only</p>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:center;padding:var(--space-8);">
+    <div style="width:100%;max-width:380px;">
+      <h2 style="margin-bottom:var(--space-1);">Admin sign-in</h2>
+      <p class="text-muted" style="font-size:14px;margin-bottom:var(--space-6);">Restricted to Mashoke Tech platform staff.</p>
+
+      <form onsubmit="{{ handleLogin }}">
+        <div class="field" style="margin-bottom:var(--space-4);">
+          <label>Work email</label>
+          <input class="input" type="email" placeholder="you@mashoketech.com" value="{{ email }}" oninput="{{ onEmail }}"/>
+        </div>
+        <div class="field" style="margin-bottom:var(--space-6);">
+          <label>Password</label>
+          <input class="input" type="password" placeholder="••••••••" value="{{ password }}" oninput="{{ onPassword }}"/>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" style="justify-content:center;padding:var(--space-3);">
+          Sign in <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+        </button>
+      </form>
+
+      <div class="hr"></div>
+      <a href="./LecturerLogin.dc.html" style="font-size:13px;">&larr; Lecturer portal</a>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { email: '', password: '' };
+  onEmail = (e) => this.setState({ email: e.target.value });
+  onPassword = (e) => this.setState({ password: e.target.value });
+  handleLogin = (e) => { e.preventDefault(); window.location.href = './AdminOverview.dc.html'; };
+  renderVals() {
+    return { email: this.state.email, password: this.state.password, onEmail: this.onEmail, onPassword: this.onPassword, handleLogin: this.handleLogin };
+  }
+}
+
+</script>
+</body>
+</html>

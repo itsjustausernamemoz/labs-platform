@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="./modernist.css">
+<style>
+  a { color: var(--color-accent); text-decoration: none; }
+  body { margin: 0; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--space-6); }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+  .tabbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-6); flex-wrap: wrap; }
+  .tabbar a { padding: 9px 16px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; border: 1px solid var(--color-divider); }
+  .tabbar a.active { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  .filterbar { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); flex-wrap: wrap; }
+  .fchip { padding: 6px 12px; font-size: 11px; font-weight: 700; border: 1px solid var(--color-divider); background: transparent; cursor: pointer; }
+  .fchip.active { background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent); }
+  @media (max-width: 900px) { .stat-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</helmet>
+
+<nav class="nav">
+  <div class="wrap" style="display:flex;align-items:center;width:100%;">
+    <div class="nav-brand" style="display:flex;align-items:center;gap:10px;">
+      <img src="./assets/mashoke-logo.png" alt="Mashoke Tech" style="width:30px;height:30px;object-fit:contain;"/>
+      Mashoke Labs <span class="tag tag-outline" style="margin-left:4px;">Platform Admin</span>
+    </div>
+    <div style="margin-left:auto;">
+      <a href="./AdminLogin.dc.html" class="btn btn-icon btn-secondary" title="Log out"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg></a>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap" style="padding-top:var(--space-8);padding-bottom:var(--space-8);">
+  <h1>Users</h1>
+  <p class="text-muted" style="margin-bottom:var(--space-4);">Every account on the platform, across every institution.</p>
+
+  <div class="tabbar">
+    <a href="./AdminOverview.dc.html">Overview</a>
+    <a href="./AdminDashboard.dc.html">Institutions</a>
+    <a href="./AdminUsers.dc.html" class="active">Users</a>
+    <a href="./AdminBilling.dc.html">Billing &amp; revenue</a>
+    <a href="./AdminSupport.dc.html">Support</a>
+    <a href="./AdminAuditLog.dc.html">Audit log</a>
+    <a href="./AdminSettings.dc.html">Settings</a>
+  </div>
+
+  <div class="field" style="max-width:360px;margin-bottom:var(--space-4);">
+    <input class="input" placeholder="Search by name or email…" value="{{ query }}" oninput="{{ onQuery }}"/>
+  </div>
+
+  <div class="filterbar">
+    <sc-for list="{{ roleFilters }}" as="f" hint-placeholder-count="4">
+      <button class="fchip {{ f.cls }}" onclick="{{ f.select }}">{{ f.label }}</button>
+    </sc-for>
+  </div>
+
+  <table class="table">
+    <thead><tr><th>Name</th><th>Role</th><th>Institution</th><th>Status</th><th>Last active</th><th></th></tr></thead>
+    <tbody>
+      <sc-for list="{{ filteredUsers }}" as="u" hint-placeholder-count="6">
+        <tr>
+          <td><div style="font-weight:700;">{{ u.name }}</div><div class="text-muted" style="font-size:11px;">{{ u.email }}</div></td>
+          <td><span class="tag tag-neutral">{{ u.roleLabel }}</span></td>
+          <td>{{ u.institution }}</td>
+          <td><span class="tag {{ u.statusTagClass }}">{{ u.statusLabel }}</span></td>
+          <td class="text-muted">{{ u.lastActive }}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button class="btn btn-ghost" onclick="{{ u.resetPassword }}">Reset password</button>
+            <button class="btn btn-ghost" style="color:var(--color-accent-700);" onclick="{{ u.toggleSuspend }}">{{ u.suspendLabel }}</button>
+          </td>
+        </tr>
+      </sc-for>
+    </tbody>
+  </table>
+</main>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    query: '',
+    roleFilter: 'all',
+    users: [
+      { name: 'Dr. Amina Yusuf', email: 'a.yusuf@lsu.edu', role: 'lecturer', institution: 'Lagoon State University', active: true, lastActive: '10m ago' },
+      { name: 'A. Nkemdirim', email: '20240147@lsu.edu', role: 'student', institution: 'Lagoon State University', active: true, lastActive: '1h ago' },
+      { name: 'Registrar Office', email: 'registrar@lsu.edu', role: 'institution_admin', institution: 'Lagoon State University', active: true, lastActive: '3h ago' },
+      { name: 'Prof. Kwame Boateng', email: 'k.boateng@northbridge.ac', role: 'lecturer', institution: 'Northbridge Polytechnic', active: true, lastActive: '1d ago' },
+      { name: 'T. Osei', email: '20240092@northbridge.ac', role: 'student', institution: 'Northbridge Polytechnic', active: false, lastActive: '9d ago' },
+      { name: 'IT Desk', email: 'it@deltacoding.io', role: 'institution_admin', institution: 'Delta Coding Academy', active: true, lastActive: '2d ago' },
+    ],
+  };
+  onQuery = (e) => this.setState({ query: e.target.value });
+  selectRole = (r) => this.setState({ roleFilter: r });
+  resetPassword = () => {};
+  toggleSuspend = (i) => this.setState((s) => {
+    const users = s.users.slice();
+    users[i] = { ...users[i], active: !users[i].active };
+    return { users };
+  });
+  renderVals() {
+    const s = this.state;
+    const roleLabels = { lecturer: 'Lecturer', student: 'Student', institution_admin: 'Institution admin' };
+    const roles = ['all', 'lecturer', 'student', 'institution_admin'];
+    const roleFilters = roles.map((r) => ({
+      label: r === 'all' ? 'All roles' : roleLabels[r], cls: s.roleFilter === r ? 'active' : '', select: () => this.selectRole(r),
+    }));
+    const q = s.query.trim().toLowerCase();
+    const filteredUsers = s.users
+      .filter((u) => s.roleFilter === 'all' || u.role === s.roleFilter)
+      .filter((u) => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+      .map((u, i) => {
+        const realIdx = s.users.indexOf(u);
+        return {
+          name: u.name, email: u.email, roleLabel: roleLabels[u.role], institution: u.institution, lastActive: u.lastActive,
+          statusLabel: u.active ? 'Active' : 'Suspended', statusTagClass: u.active ? 'tag-accent-2' : 'tag-outline',
+          suspendLabel: u.active ? 'Suspend' : 'Reactivate',
+          toggleSuspend: () => this.toggleSuspend(realIdx),
+          resetPassword: this.resetPassword,
+        };
+      });
+    return { query: s.query, onQuery: this.onQuery, roleFilters, filteredUsers };
+  }
+}
+
+</script>
+</body>
+</html>
