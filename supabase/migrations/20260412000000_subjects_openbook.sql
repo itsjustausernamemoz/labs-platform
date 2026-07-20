@@ -1,5 +1,7 @@
--- SecureLab Migration: Subjects + Open Book Mode
--- Run this in Supabase SQL Editor
+-- Subjects + Open Book Mode
+-- Folded in from the loose, never-applied supabase/migration_subjects_openbook.sql so a fresh
+-- database gets this before 20260413000000_harden_lecturer_isolation.sql, which already assumes
+-- the `subjects` table exists (it modifies policies on it).
 
 -- 1. Create subjects table
 CREATE TABLE IF NOT EXISTS subjects (
@@ -9,10 +11,11 @@ CREATE TABLE IF NOT EXISTS subjects (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable RLS on subjects
 ALTER TABLE subjects ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users full access to subjects
+-- Starting policy (superseded by 20260413000000_harden_lecturer_isolation.sql, kept here only so
+-- the table matches the loose file's original history for anyone diffing against it).
+DROP POLICY IF EXISTS "Allow full access to subjects" ON subjects;
 CREATE POLICY "Allow full access to subjects" ON subjects
   FOR ALL USING (true) WITH CHECK (true);
 
